@@ -91,20 +91,49 @@ export function formatDollars(n: number): string {
 }
 
 export function renderSurgeonTable(result: BillingResult): string {
-  const header = `| DATE | CPT CODE | 120% MEDICARE | OCSF CHARGE |\n|------|----------|---------------|-------------|`;
-  const rows = result.surgeon.rows.map(
-    (r) =>
-      `| ${r.date} | ${r.cptDisplay} | ${formatDollars(r.medicare120Raw)} | ${formatDollars(r.ocsfChargeRaw)} |`,
-  );
-  const totals = `| **TOTALS** | | **$${result.surgeon.totalMedicare120.toLocaleString("en-US")}** | **$${result.surgeon.totalOcsfCharge.toLocaleString("en-US")}** |`;
+  const showOcsf = result.surgeon.rows.some((r) => r.ocsfChargeRaw > 0);
+  const showMedicare = result.surgeon.rows.some((r) => r.medicare120Raw > 0);
+
+  const cols = ["DATE", "CPT CODE"];
+  const divs = ["------", "----------"];
+  if (showMedicare) { cols.push("120% MEDICARE"); divs.push("---------------"); }
+  if (showOcsf)    { cols.push("OCSF CHARGE");   divs.push("-------------"); }
+
+  const header = `| ${cols.join(" | ")} |\n| ${divs.join(" | ")} |`;
+
+  const rows = result.surgeon.rows.map((r) => {
+    const cells = [r.date, r.cptDisplay];
+    if (showMedicare) cells.push(formatDollars(r.medicare120Raw));
+    if (showOcsf)    cells.push(formatDollars(r.ocsfChargeRaw));
+    return `| ${cells.join(" | ")} |`;
+  });
+
+  const totalCells = ["**TOTALS**", ""];
+  if (showMedicare) totalCells.push(`**$${result.surgeon.totalMedicare120.toLocaleString("en-US")}**`);
+  if (showOcsf)    totalCells.push(`**$${result.surgeon.totalOcsfCharge.toLocaleString("en-US")}**`);
+  const totals = `| ${totalCells.join(" | ")} |`;
+
   return [header, ...rows, totals].join("\n");
 }
 
 export function renderAscTable(result: BillingResult): string {
-  const header = `| DATE | CPT CODE | 120% MEDICARE |\n|------|----------|---------------|`;
-  const rows = result.asc.rows.map(
-    (r) => `| ${r.date} | ${r.cptDisplay} | ${formatDollars(r.medicare120Raw)} |`,
-  );
-  const totals = `| **TOTALS** | | **$${result.asc.totalMedicare120.toLocaleString("en-US")}** |`;
+  const showMedicare = result.asc.rows.some((r) => r.medicare120Raw > 0);
+
+  const cols = ["DATE", "CPT CODE"];
+  const divs = ["------", "----------"];
+  if (showMedicare) { cols.push("120% MEDICARE"); divs.push("---------------"); }
+
+  const header = `| ${cols.join(" | ")} |\n| ${divs.join(" | ")} |`;
+
+  const rows = result.asc.rows.map((r) => {
+    const cells = [r.date, r.cptDisplay];
+    if (showMedicare) cells.push(formatDollars(r.medicare120Raw));
+    return `| ${cells.join(" | ")} |`;
+  });
+
+  const totalCells = ["**TOTALS**", ""];
+  if (showMedicare) totalCells.push(`**$${result.asc.totalMedicare120.toLocaleString("en-US")}**`);
+  const totals = `| ${totalCells.join(" | ")} |`;
+
   return [header, ...rows, totals].join("\n");
 }
