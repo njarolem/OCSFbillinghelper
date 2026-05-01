@@ -54,7 +54,7 @@ export async function verifyCookie(
     const ok = await crypto.subtle.verify(
       "HMAC",
       key,
-      sigBytes,
+      sigBytes.buffer as ArrayBuffer,
       enc.encode(payloadB64),
     );
     if (!ok) return false;
