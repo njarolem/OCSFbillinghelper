@@ -170,9 +170,24 @@ function findAscSectionStart(text: string): number {
 }
 
 function findOtherDoctorsSectionStart(text: string): number {
-  const re = /other\s+doctor|dr\.?\s+\w+'?s?\s+(?:charges?|surgeon)/i;
-  const m = re.exec(text);
-  return m ? m.index : -1;
+  // Explicit "Other Doctors" header.
+  let m = /other\s+doctors?\s+(?:surgeon\s+)?charge/i.exec(text);
+  if (m) return m.index;
+
+  // "(blank)" marker means the user pasted a fill-in template — treat the
+  // whole blurb as the Other Doctors section regardless of where it sits.
+  if (/\(blank\)/i.test(text)) return 0;
+
+  // "Dr. <Name>" appearing as a standalone line (column header) plus at least
+  // one CPT code paired with a dollar amount → fill-in template.
+  m = /(?:^|\n)\s*Dr\.?\s+[A-Z][A-Za-z'\-]+\s*(?:\n|$)/.exec(text);
+  if (m && /\$\s*[\d,]+/.test(text)) return m.index;
+
+  // Possessive form: "Dr. Roush's charges were $X" or "Dr. Roush surgeon".
+  m = /dr\.?\s+\w+'?s\s+(?:charges?|surgeon)/i.exec(text);
+  if (m) return m.index;
+
+  return -1;
 }
 
 // Pulls "Dr. <Name>" from the blurb so the Other Doctors table can label its
