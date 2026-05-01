@@ -33,6 +33,7 @@ export interface LineItem {
   rawToken: string; // e.g., "27130-LT-AS"
   cpt: string;
   modifiers: Modifier[];
+  dosIso?: string; // per-line date override when blurb has multiple DOS
 }
 
 export interface BlurbParseResult {

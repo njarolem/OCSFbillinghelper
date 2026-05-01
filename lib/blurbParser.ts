@@ -135,9 +135,36 @@ export function extractCounty(text: string): CountyLabel | null {
 // modifiers from the captured suffix to allow stacking like "27130-LT-AS".
 const CPT_TOKEN_RE = /\b([A-Z0-9]\d{4}[A-Z]?)((?:-[A-Z0-9]{1,3})*)\b/gi;
 
+// Finds all {index, iso} date anchors in the text so CPT codes can be tagged
+// with the date that immediately precedes them.
+function extractDateAnchors(text: string): Array<{ index: number; iso: string }> {
+  const anchors: Array<{ index: number; iso: string }> = [];
+  const slashRe = /\b(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})\b/g;
+  let m: RegExpExecArray | null;
+  while ((m = slashRe.exec(text)) !== null) {
+    let yr = Number(m[3]);
+    if (yr < 100) yr += 2000;
+    const iso = toIso(yr, Number(m[1]), Number(m[2]));
+    if (iso) anchors.push({ index: m.index, iso });
+  }
+  const wordRe =
+    /\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(\d{1,2})(?:,)?\s+(\d{2,4})\b/gi;
+  while ((m = wordRe.exec(text)) !== null) {
+    const monthKey = m[1].toLowerCase();
+    const month = MONTHS[monthKey] ?? MONTHS[monthKey.slice(0, 3)];
+    let yr = Number(m[3]);
+    if (yr < 100) yr += 2000;
+    const iso = toIso(yr, month, Number(m[2]));
+    if (iso) anchors.push({ index: m.index, iso });
+  }
+  return anchors.sort((a, b) => a.index - b.index);
+}
+
 export function extractLineItems(text: string): LineItem[] {
+  const anchors = extractDateAnchors(text);
   const items: LineItem[] = [];
   let m: RegExpExecArray | null;
+  CPT_TOKEN_RE.lastIndex = 0;
   while ((m = CPT_TOKEN_RE.exec(text)) !== null) {
     const cpt = m[1].toUpperCase();
     const modSuffix = (m[2] || "").toUpperCase();
@@ -147,20 +174,40 @@ export function extractLineItems(text: string): LineItem[] {
         if (PAYMENT_MODS.has(seg) || SIDE_MODS.has(seg)) {
           modifiers.push(seg as Modifier);
         }
-        // Unknown modifier segments are silently dropped — the engine treats
-        // the line as "no payment modifier" which is the safe default.
       }
+    }
+    // Tag this code with the most-recent date anchor that appears before it.
+    let dosIso: string | undefined;
+    if (anchors.length > 0) {
+      const preceding = anchors.filter((a) => a.index <= m!.index);
+      if (preceding.length > 0) dosIso = preceding[preceding.length - 1].iso;
     }
     items.push({
       rawToken: `${cpt}${modSuffix}`,
       cpt,
       modifiers,
+      ...(dosIso ? { dosIso } : {}),
     });
   }
   return items;
 }
 
-export function parseBlurb(text: string): BlurbParseResult {
+// CPT codes in the Surgery section (10000–69999) that have no modifiers
+// likely need laterality clarification for orthopedic billing.
+function surgicalCodesNeedingLaterality(items: LineItem[]): string[] {
+  return items
+    .filter((item) => {
+      if (item.modifiers.length > 0) return false;
+      const n = parseInt(item.cpt, 10);
+      return n >= 10000 && n <= 69999;
+    })
+    .map((item) => item.cpt);
+}
+
+export function parseBlurb(
+  text: string,
+  opts: { skipLateralityCheck?: boolean; skipLocalityCheck?: boolean } = {},
+): BlurbParseResult {
   const dos = extractDate(text);
   const county = extractCounty(text);
   const lineItems = extractLineItems(text);
@@ -174,7 +221,18 @@ export function parseBlurb(text: string): BlurbParseResult {
       "What was the date of service? (Please include MM/DD/YYYY — supported range is 2022–2026.)";
   } else if (!county) {
     followUp =
-      "Which Florida county is the date of service in? (Miami-Dade, Broward, Palm Beach, or Other)";
+      "Which Florida county was the surgery performed in? (Miami-Dade, Broward, Palm Beach, or Other Florida)";
+  } else if (county === "Other" && !opts.skipLocalityCheck) {
+    followUp =
+      "I resolved the location to Other Florida (locality 99). Please confirm — is the surgery county Miami-Dade, Broward, or Palm Beach? If it's another Florida county, reply \"Other\" to continue.";
+  } else if (!opts.skipLateralityCheck) {
+    const needsLat = surgicalCodesNeedingLaterality(lineItems);
+    if (needsLat.length > 0) {
+      const list = needsLat.join(", ");
+      followUp =
+        `${list} ${needsLat.length === 1 ? "has" : "have"} no laterality or payment modifier. ` +
+        `Please add -LT, -RT, or -50 (bilateral) to each code — or reply "no modifier" to compute as unilateral.`;
+    }
   }
 
   return { dos, county, lineItems, followUp };

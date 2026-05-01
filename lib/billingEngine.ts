@@ -71,7 +71,11 @@ export function compute(input: ComputeInput): BillingResult {
 
   for (const li of lineItems) {
     const cpt = li.cpt;
-    const phys = findPhysicianRow(cpt, locality, year);
+    // Use per-line DOS when the blurb contains multiple dates.
+    const lineIso = li.dosIso ?? dosIso;
+    const lineYear = Number(lineIso.slice(0, 4));
+    const lineDosDisplay = isoToDisplay(lineIso);
+    const phys = findPhysicianRow(cpt, locality, lineYear);
     const lineFlags: FcsoFlag[] = [];
 
     let medicare120Raw = 0;
@@ -83,17 +87,17 @@ export function compute(input: ComputeInput): BillingResult {
         reason:
           "CPT not found in physician fee schedule for this locality/year",
         locality,
-        year,
-        dosDisplay,
+        year: lineYear,
+        dosDisplay: lineDosDisplay,
       });
       const yearsAvail = physicianYearsAvailable(cpt, locality);
-      if (yearsAvail.size > 0 && !yearsAvail.has(year)) {
+      if (yearsAvail.size > 0 && !yearsAvail.has(lineYear)) {
         lineFlags.push({
           cpt,
-          reason: `CPT exists for years [${[...yearsAvail].sort().join(", ")}] but not ${year} — possibly added/revised`,
+          reason: `CPT exists for years [${[...yearsAvail].sort().join(", ")}] but not ${lineYear} — possibly added/revised`,
           locality,
-          year,
-          dosDisplay,
+          year: lineYear,
+          dosDisplay: lineDosDisplay,
         });
       }
     } else {
@@ -107,16 +111,16 @@ export function compute(input: ComputeInput): BillingResult {
           reason:
             "NON_FAC_LC is $0 (Status R / carrier-priced) — verify with FCSO",
           locality,
-          year,
-          dosDisplay,
+          year: lineYear,
+          dosDisplay: lineDosDisplay,
         });
       } else if (phys.nonFacLc < LOW_VALUE_THRESHOLD) {
         lineFlags.push({
           cpt,
           reason: `NON_FAC_LC is suspiciously low ($${phys.nonFacLc.toFixed(2)}) — verify with FCSO`,
           locality,
-          year,
-          dosDisplay,
+          year: lineYear,
+          dosDisplay: lineDosDisplay,
         });
       }
 
@@ -126,15 +130,15 @@ export function compute(input: ComputeInput): BillingResult {
           reason:
             "Multiple payment modifiers on one line; verify intended billing (most-restrictive applied)",
           locality,
-          year,
-          dosDisplay,
+          year: lineYear,
+          dosDisplay: lineDosDisplay,
         });
       }
     }
 
     const isAssistant = li.modifiers.some((m) => ASSISTANT_MODS.has(m));
     const row: SurgeonRow = {
-      date: dosDisplay,
+      date: lineDosDisplay,
       cptDisplay: formatCptDisplay(cpt, li.modifiers),
       medicare120Raw,
       ocsfChargeRaw,
@@ -147,7 +151,7 @@ export function compute(input: ComputeInput): BillingResult {
     }
 
     // ASC table — modifiers never apply.
-    const asc = findAscRow(cpt, ascCounty, year);
+    const asc = findAscRow(cpt, ascCounty, lineYear);
     const ascFlags: FcsoFlag[] = [];
     let ascMedicare120Raw = 0;
     if (!asc) {
@@ -155,8 +159,8 @@ export function compute(input: ComputeInput): BillingResult {
         cpt,
         reason: "CPT not found in ASC fee schedule — verify with FCSO",
         locality,
-        year,
-        dosDisplay,
+        year: lineYear,
+        dosDisplay: lineDosDisplay,
       });
     } else {
       ascMedicare120Raw = asc.asc120Pct;
@@ -164,11 +168,11 @@ export function compute(input: ComputeInput): BillingResult {
 
     // ASC bilateral: -50 codes bill as two separate lines (LT + RT), each at 1× rate.
     if (li.modifiers.includes("50")) {
-      ascRows.push({ date: dosDisplay, cptDisplay: `${cpt}-LT`, medicare120Raw: ascMedicare120Raw, flags: ascFlags });
-      ascRows.push({ date: dosDisplay, cptDisplay: `${cpt}-RT`, medicare120Raw: ascMedicare120Raw, flags: [] });
+      ascRows.push({ date: lineDosDisplay, cptDisplay: `${cpt}-LT`, medicare120Raw: ascMedicare120Raw, flags: ascFlags });
+      ascRows.push({ date: lineDosDisplay, cptDisplay: `${cpt}-RT`, medicare120Raw: ascMedicare120Raw, flags: [] });
     } else {
       ascRows.push({
-        date: dosDisplay,
+        date: lineDosDisplay,
         cptDisplay: cpt,
         medicare120Raw: ascMedicare120Raw,
         flags: ascFlags,
