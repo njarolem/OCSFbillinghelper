@@ -512,22 +512,26 @@ function TablesBlock({
           </button>
         ) : null}
       </div>
-      <BillingTable
-        title="Surgeon Charge"
-        markdown={surgeonMd}
-        footnote={SURGEON_FOOTNOTE}
-        intro="The following table shows the charges for the procedures done in this case for a surgeon coded appropriately at 120% of Medicare and the charges that would have been generated through the Orthopaedic Center of South Florida for these CPT codes."
-      />
-      <BillingTable
-        title="Surgery Center and Anesthesia Charge"
-        markdown={ascMd}
-        intro="The following table shows the charges for a surgery center and anesthesia for the procedures in this case coded correctly at 120% of Medicare:"
-      />
+      {result.surgeon.rows.length > 0 && (
+        <BillingTable
+          title="Surgeon Charge"
+          markdown={surgeonMd}
+          footnote={SURGEON_FOOTNOTE}
+          intro="The following table shows the charges for the procedures done in this case for a surgeon coded appropriately at 120% of Medicare and the charges that would have been generated through the Orthopaedic Center of South Florida for these CPT codes."
+        />
+      )}
+      {result.asc.rows.length > 0 && (
+        <BillingTable
+          title="Surgery Center and Anesthesia Charge"
+          markdown={ascMd}
+          intro="The following table shows the charges for a surgery center and anesthesia for the procedures in this case coded correctly at 120% of Medicare:"
+        />
+      )}
       {result.otherDoctors.rows.length > 0 && (
         <BillingTable
           title="Other Doctors Surgeon Charge"
           markdown={otherDoctorsMd}
-          intro="The following table shows the charges for other doctors involved in this case coded appropriately at 120% of Medicare:"
+          intro="Other Doctors Surgeon Charge:"
         />
       )}
     </div>
