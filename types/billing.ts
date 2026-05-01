@@ -80,5 +80,10 @@ export interface BillingResult {
     rows: AscBillingRow[];
     totalMedicare120: number;
   };
+  otherDoctors: {
+    rows: SurgeonRow[];
+    totalMedicare120: number;
+    totalOcsfCharge: number;
+  };
   fcsoFlags: FcsoFlag[];
 }

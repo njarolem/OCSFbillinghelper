@@ -9,6 +9,7 @@ import {
 import {
   countyToAscCounty,
   renderAscTable,
+  renderOtherDoctorsTable,
   renderSurgeonTable,
 } from "@/lib/billingFormat";
 import { renderFcsoWarnings } from "@/lib/fcsoFlags";
@@ -84,6 +85,7 @@ export default function ChatThread({
     "awaiting-blurb" | "awaiting-followup" | "computing" | "done" | "error"
   >("awaiting-blurb");
   const [pendingFollowUp, setPendingFollowUp] = useState<string | null>(null);
+  const [lateralityAnswered, setLateralityAnswered] = useState(false);
   const [result, setResult] = useState<BillingResult | null>(null);
   const [savedNotice, setSavedNotice] = useState<string | null>(null);
 
@@ -193,7 +195,7 @@ export default function ChatThread({
     setOriginalBlurb(blurb);
     setConversationText(blurb);
 
-    const parsed = parseBlurb(blurb);
+    const parsed = parseBlurb(blurb, { skipLateralityCheck: false });
 
     if (parsed.dos && !isDateInRange(parsed.dos)) {
       appendAssistant(
@@ -223,7 +225,14 @@ export default function ChatThread({
       setFollowUps((f) => [...f, { question: pendingFollowUp, answer }]);
     }
 
-    const parsed = parseBlurb(merged);
+    // If user answered the laterality question, skip it on re-parse.
+    const noModifierAnswer = /no[\s-]?modifier|unilateral|skip|n\/a|none/i.test(answer);
+    const skipLat = lateralityAnswered || noModifierAnswer;
+    if (noModifierAnswer || pendingFollowUp?.includes("laterality")) {
+      setLateralityAnswered(true);
+    }
+
+    const parsed = parseBlurb(merged, { skipLateralityCheck: skipLat });
     if (parsed.dos && !isDateInRange(parsed.dos)) {
       appendAssistant(
         `Date of service ${isoToDisplay(parsed.dos)} is outside the supported range (2022–2026).`,
@@ -244,8 +253,32 @@ export default function ChatThread({
   }
 
   function onSubmit(text: string) {
-    if (phase === "awaiting-blurb") void handleFirstSubmit(text);
-    else if (phase === "awaiting-followup") void handleFollowUpAnswer(text);
+    if (phase === "awaiting-blurb") {
+      void handleFirstSubmit(text);
+    } else if (phase === "awaiting-followup") {
+      void handleFollowUpAnswer(text);
+    } else if (phase === "done" || phase === "error") {
+      // Start a new case inline without clearing the thread.
+      setMessages((m) => [
+        ...m,
+        {
+          id: newId(),
+          role: "assistant",
+          kind: "text",
+          text: "─── New case ───",
+        },
+      ]);
+      setConversationText("");
+      setFollowUps([]);
+      setOriginalBlurb("");
+      setPhase("awaiting-blurb");
+      setPendingFollowUp(null);
+      setResult(null);
+      setSavedNotice(null);
+      setLateralityAnswered(false);
+      onNewCaseExternal?.();
+      void handleFirstSubmit(text);
+    }
   }
 
   function onNewCase() {
@@ -266,6 +299,7 @@ export default function ChatThread({
     setPendingFollowUp(null);
     setResult(null);
     setSavedNotice(null);
+    setLateralityAnswered(false);
   }
 
   async function downloadCurrentSession() {
@@ -333,15 +367,15 @@ export default function ChatThread({
 
       <CaseInputBox
         placeholder={
-          phase === "awaiting-blurb"
-            ? "e.g., Patient had R hip arthroplasty 4/12/2024 at our Miami ASC. Codes 27130-RT, 20680-RT, 27130-AS."
-            : phase === "awaiting-followup"
-              ? "Type your answer…"
-              : "New Case to start over."
+          phase === "awaiting-followup"
+            ? "Type your answer…"
+            : phase === "computing"
+              ? "Computing…"
+              : "Paste a case blurb — DOS, county, and CPT codes. Paste another when ready for the next case."
         }
         onSubmit={onSubmit}
-        disabled={phase === "computing" || phase === "done" || phase === "error"}
-        multiline={phase === "awaiting-blurb"}
+        disabled={phase === "computing"}
+        multiline={phase === "awaiting-blurb" || phase === "done" || phase === "error"}
       />
     </div>
   );
@@ -387,6 +421,15 @@ function MessageRenderer({
   if (msg.role === "user") {
     return <MessageBubble role="user">{msg.text}</MessageBubble>;
   }
+  if (msg.kind === "text" && msg.text === "─── New case ───") {
+    return (
+      <div className="flex items-center gap-3 my-4">
+        <div className="flex-1 border-t border-border" />
+        <span className="text-xs text-slate-400 font-medium">New case</span>
+        <div className="flex-1 border-t border-border" />
+      </div>
+    );
+  }
   if (msg.kind === "tables") {
     return <TablesBlock result={msg.result} showLocalityToggle={showLocalityToggle} />;
   }
@@ -415,6 +458,7 @@ function TablesBlock({
 
   const surgeonMd = useMemo(() => renderSurgeonTable(result), [result]);
   const ascMd = useMemo(() => renderAscTable(ascResult), [ascResult]);
+  const otherDoctorsMd = useMemo(() => renderOtherDoctorsTable(result), [result]);
 
   async function recomputeAscFor(other: CountyLabel) {
     setRecomputing(true);
@@ -478,11 +522,14 @@ function TablesBlock({
         ) : null}
       </div>
       <BillingTable
-        title="Table 1 — Surgeon"
+        title="Surgeon Charge"
         markdown={surgeonMd}
         footnote={SURGEON_FOOTNOTE}
       />
-      <BillingTable title="Table 2 — Surgery Center & Anesthesia" markdown={ascMd} />
+      <BillingTable title="Surgery Center and Anesthesia Charge" markdown={ascMd} />
+      {result.otherDoctors.rows.length > 0 && (
+        <BillingTable title="Other Doctors Surgeon Charge" markdown={otherDoctorsMd} />
+      )}
     </div>
   );
 }

@@ -116,6 +116,33 @@ export function renderSurgeonTable(result: BillingResult): string {
   return [header, ...rows, totals].join("\n");
 }
 
+export function renderOtherDoctorsTable(result: BillingResult): string {
+  const rows = result.otherDoctors.rows;
+  const showOcsf = rows.some((r) => r.ocsfChargeRaw > 0);
+  const showMedicare = rows.some((r) => r.medicare120Raw > 0);
+
+  const cols = ["DATE", "CPT CODE", "Dr. XYZ"];
+  const divs = ["------", "----------", "-------"];
+  if (showMedicare) { cols.push("120% MEDICARE"); divs.push("---------------"); }
+  if (showOcsf)    { cols.push("OCSF CHARGE");   divs.push("-------------"); }
+
+  const header = `| ${cols.join(" | ")} |\n| ${divs.join(" | ")} |`;
+
+  const dataRows = rows.map((r) => {
+    const cells = [r.date, r.cptDisplay, ""];
+    if (showMedicare) cells.push(formatDollars(r.medicare120Raw));
+    if (showOcsf)    cells.push(formatDollars(r.ocsfChargeRaw));
+    return `| ${cells.join(" | ")} |`;
+  });
+
+  const totalCells = ["**TOTALS**", "", ""];
+  if (showMedicare) totalCells.push(`**$${result.otherDoctors.totalMedicare120.toLocaleString("en-US")}**`);
+  if (showOcsf)    totalCells.push(`**$${result.otherDoctors.totalOcsfCharge.toLocaleString("en-US")}**`);
+  const totals = `| ${totalCells.join(" | ")} |`;
+
+  return [header, ...dataRows, totals].join("\n");
+}
+
 export function renderAscTable(result: BillingResult): string {
   const showMedicare = result.asc.rows.some((r) => r.medicare120Raw > 0);
 

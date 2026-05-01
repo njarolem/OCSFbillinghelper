@@ -43,6 +43,7 @@ export {
   formatDollars,
   ocsfMultiplier,
   renderAscTable,
+  renderOtherDoctorsTable,
   renderSurgeonTable,
   roundDollars,
   surgeonMultiplier,
@@ -62,7 +63,10 @@ export function compute(input: ComputeInput): BillingResult {
   const ascCounty = countyToAscCounty(county);
 
   const surgeonRows: SurgeonRow[] = [];
+  const otherDoctorRows: SurgeonRow[] = [];
   const ascRows: AscBillingRow[] = [];
+
+  const ASSISTANT_MODS = new Set(["AS", "80", "82"]);
   const allFlags: FcsoFlag[] = [];
 
   for (const li of lineItems) {
@@ -128,13 +132,19 @@ export function compute(input: ComputeInput): BillingResult {
       }
     }
 
-    surgeonRows.push({
+    const isAssistant = li.modifiers.some((m) => ASSISTANT_MODS.has(m));
+    const row: SurgeonRow = {
       date: dosDisplay,
       cptDisplay: formatCptDisplay(cpt, li.modifiers),
       medicare120Raw,
       ocsfChargeRaw,
       flags: lineFlags,
-    });
+    };
+    if (isAssistant) {
+      otherDoctorRows.push(row);
+    } else {
+      surgeonRows.push(row);
+    }
 
     // ASC table — modifiers never apply.
     const asc = findAscRow(cpt, ascCounty, year);
@@ -178,6 +188,13 @@ export function compute(input: ComputeInput): BillingResult {
     ascRows.reduce((s, r) => s + r.medicare120Raw, 0),
   );
 
+  const otherTotal120 = roundDollars(
+    otherDoctorRows.reduce((s, r) => s + r.medicare120Raw, 0),
+  );
+  const otherTotalOcsf = roundDollars(
+    otherDoctorRows.reduce((s, r) => s + r.ocsfChargeRaw, 0),
+  );
+
   return {
     dosDisplay,
     year,
@@ -192,6 +209,11 @@ export function compute(input: ComputeInput): BillingResult {
     asc: {
       rows: ascRows,
       totalMedicare120: ascTotal,
+    },
+    otherDoctors: {
+      rows: otherDoctorRows,
+      totalMedicare120: otherTotal120,
+      totalOcsfCharge: otherTotalOcsf,
     },
     fcsoFlags: allFlags,
   };
