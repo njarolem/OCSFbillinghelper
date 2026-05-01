@@ -146,10 +146,7 @@ export default function ChatThread() {
       .then((r) => r.json())
       .then((d: { ok: boolean; mode?: "file" | "download"; filename?: string; markdown?: string; path?: string }) => {
         if (!d.ok) return;
-        if (d.mode === "download" && d.markdown && d.filename) {
-          downloadMarkdown(d.filename, d.markdown);
-          setSavedNotice(`Session downloaded as ${d.filename}.`);
-        } else if (d.mode === "file" && d.path) {
+        if (d.mode === "file" && d.path) {
           setSavedNotice(`Session saved to ${d.path}.`);
         }
       })
