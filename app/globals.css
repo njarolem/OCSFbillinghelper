@@ -1,0 +1,55 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+html,
+body {
+  background: #f8fafc;
+  color: #0f172a;
+}
+
+/* Tighten markdown output inside chat bubbles. */
+.md-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9375rem;
+}
+.md-table th,
+.md-table td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid #e2e8f0;
+  text-align: left;
+}
+.md-table thead th {
+  background: #e0f2fe;
+  color: #0369a1;
+  font-weight: 600;
+}
+.md-table tbody tr:nth-child(even) {
+  background: #f1f5f9;
+}
+.md-table tbody tr:last-child td {
+  font-weight: 600;
+}
+
+.md-prose p {
+  margin: 0.5rem 0;
+}
+.md-prose a {
+  color: #0369a1;
+  text-decoration: underline;
+}
+.md-prose strong {
+  font-weight: 600;
+}
+
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid #0ea5e9;
+  outline-offset: 2px;
+}

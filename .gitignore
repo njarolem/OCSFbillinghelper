@@ -1,0 +1,10 @@
+node_modules
+.next
+out
+.env.local
+.env*.local
+*.log
+.DS_Store
+sessions/*.md
+!sessions/.gitkeep
+.vercel
