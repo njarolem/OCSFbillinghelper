@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import {
   isDateInRange,
   isoToDisplay,
@@ -42,6 +42,8 @@ import MessageBubble from "./MessageBubble";
 import CaseInputBox from "./CaseInputBox";
 import BillingTable from "./BillingTable";
 import FCSOWarning from "./FCSOWarning";
+import { saveSession } from "@/lib/sessionStore";
+import type { StoredSession } from "@/lib/sessionStore";
 
 type Msg =
   | { id: string; role: "user"; text: string }
@@ -55,7 +57,15 @@ const newId = () => `m_${++_nextId}`;
 const SURGEON_FOOTNOTE =
   "No multi-procedure (-51) reduction applied. Each line capped at 120% of its own Medicare rate per LOP convention.";
 
-export default function ChatThread() {
+export default function ChatThread({
+  viewSession,
+  onSessionSaved,
+  onNewCase: onNewCaseExternal,
+}: {
+  viewSession?: StoredSession | null;
+  onSessionSaved?: () => void;
+  onNewCase?: () => void;
+}) {
   const [messages, setMessages] = useState<Msg[]>([
     {
       id: newId(),
@@ -81,6 +91,25 @@ export default function ChatThread() {
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, savedNotice]);
+
+  // Load a past session for read-only viewing
+  useEffect(() => {
+    if (!viewSession) return;
+    setMessages([
+      {
+        id: newId(),
+        role: "assistant",
+        kind: "text",
+        text: `Viewing past case — ${viewSession.dosDisplay}, ${viewSession.county}.`,
+      },
+      { id: newId(), role: "user", text: viewSession.blurb },
+      { id: newId(), role: "assistant", kind: "tables", result: viewSession.result },
+    ]);
+    setResult(viewSession.result);
+    setOriginalBlurb(viewSession.blurb);
+    setPhase("done");
+    setSavedNotice(null);
+  }, [viewSession]);
 
   function appendUser(text: string) {
     setMessages((m) => [...m, { id: newId(), role: "user", text }]);
@@ -129,6 +158,10 @@ export default function ChatThread() {
       appendAssistantMd(renderFcsoWarnings(data.result.fcsoFlags));
     }
     setPhase("done");
+
+    // Save to localStorage for sidebar history.
+    saveSession(data.result, originalBlurb);
+    onSessionSaved?.();
 
     // Save the session (or trigger download) in the background.
     const followUpsAtSave = [...followUps];
@@ -216,6 +249,7 @@ export default function ChatThread() {
   }
 
   function onNewCase() {
+    onNewCaseExternal?.();
     setMessages([
       {
         id: newId(),
