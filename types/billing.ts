@@ -34,7 +34,8 @@ export interface LineItem {
   cpt: string;
   modifiers: Modifier[];
   dosIso?: string; // per-line date override when blurb has multiple DOS
-  section?: "surgeon" | "asc"; // which table this code belongs to
+  section?: "surgeon" | "asc" | "other"; // which table this code belongs to
+  drCharge?: number; // pre-supplied "Dr. X" charge for the Other Doctors table
 }
 
 export interface BlurbParseResult {
@@ -42,6 +43,7 @@ export interface BlurbParseResult {
   county: CountyLabel | null;
   lineItems: LineItem[];
   followUp: string | null; // populated when something is missing
+  doctorName?: string; // detected "Dr. <Name>" for the Other Doctors column header
 }
 
 export interface SurgeonRow {
@@ -50,6 +52,7 @@ export interface SurgeonRow {
   medicare120Raw: number; // unrounded
   ocsfChargeRaw: number; // unrounded
   flags: FcsoFlag[];
+  drChargeRaw?: number; // user-supplied doctor charge (Other Doctors table)
 }
 
 export interface AscBillingRow {
@@ -86,6 +89,8 @@ export interface BillingResult {
     rows: SurgeonRow[];
     totalMedicare120: number;
     totalOcsfCharge: number;
+    totalDrCharge: number;
+    doctorName: string;
   };
   fcsoFlags: FcsoFlag[];
 }

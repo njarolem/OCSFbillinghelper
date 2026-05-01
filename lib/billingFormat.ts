@@ -118,27 +118,29 @@ export function renderSurgeonTable(result: BillingResult): string {
 
 export function renderOtherDoctorsTable(result: BillingResult): string {
   const rows = result.otherDoctors.rows;
-  const showOcsf = rows.some((r) => r.ocsfChargeRaw > 0);
-  const showMedicare = rows.some((r) => r.medicare120Raw > 0);
+  const doctorName = result.otherDoctors.doctorName || "Dr. Roush";
 
-  const cols = ["DATE", "CPT CODE", "Dr. XYZ"];
-  const divs = ["------", "----------", "-------"];
-  if (showMedicare) { cols.push("120% MEDICARE"); divs.push("---------------"); }
-  if (showOcsf)    { cols.push("OCSF CHARGE");   divs.push("-------------"); }
-
-  const header = `| ${cols.join(" | ")} |\n| ${divs.join(" | ")} |`;
+  const header = `| DATE | CPT | ${doctorName.toUpperCase()} | OCSF CHARGE |\n|------|-----|-----------|-------------|`;
 
   const dataRows = rows.map((r) => {
-    const cells = [r.date, r.cptDisplay, ""];
-    if (showMedicare) cells.push(formatDollars(r.medicare120Raw));
-    if (showOcsf)    cells.push(formatDollars(r.ocsfChargeRaw));
-    return `| ${cells.join(" | ")} |`;
+    const drCell =
+      r.drChargeRaw !== undefined && r.drChargeRaw > 0
+        ? formatDollars(r.drChargeRaw)
+        : "";
+    const ocsfCell =
+      r.ocsfChargeRaw > 0 ? formatDollars(r.ocsfChargeRaw) : "";
+    return `| ${r.date} | ${r.cptDisplay} | ${drCell} | ${ocsfCell} |`;
   });
 
-  const totalCells = ["**TOTALS**", "", ""];
-  if (showMedicare) totalCells.push(`**$${result.otherDoctors.totalMedicare120.toLocaleString("en-US")}**`);
-  if (showOcsf)    totalCells.push(`**$${result.otherDoctors.totalOcsfCharge.toLocaleString("en-US")}**`);
-  const totals = `| ${totalCells.join(" | ")} |`;
+  const drTotal =
+    result.otherDoctors.totalDrCharge > 0
+      ? `**$${result.otherDoctors.totalDrCharge.toLocaleString("en-US")}**`
+      : "**$**";
+  const ocsfTotal =
+    result.otherDoctors.totalOcsfCharge > 0
+      ? `**$${result.otherDoctors.totalOcsfCharge.toLocaleString("en-US")}**`
+      : "";
+  const totals = `| **TOTAL** |  | ${drTotal} | ${ocsfTotal} |`;
 
   return [header, ...dataRows, totals].join("\n");
 }

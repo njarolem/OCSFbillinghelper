@@ -138,12 +138,13 @@ export default function ChatThread({
     dosIso: string,
     county: CountyLabel,
     lineItems: ReturnType<typeof parseBlurb>["lineItems"],
+    doctorName?: string,
   ) {
     setPhase("computing");
     const res = await fetch("/api/compute", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ dosIso, county, lineItems }),
+      body: JSON.stringify({ dosIso, county, lineItems, doctorName }),
     });
     const data = (await res.json()) as
       | { ok: true; result: BillingResult }
@@ -212,7 +213,7 @@ export default function ChatThread({
     }
 
     if (parsed.dos && parsed.county && parsed.lineItems.length > 0) {
-      await runCompute(parsed.dos, parsed.county, parsed.lineItems);
+      await runCompute(parsed.dos, parsed.county, parsed.lineItems, parsed.doctorName);
     }
   }
 
@@ -240,7 +241,7 @@ export default function ChatThread({
     }
     if (parsed.dos && parsed.county && parsed.lineItems.length > 0) {
       setPendingFollowUp(null);
-      await runCompute(parsed.dos, parsed.county, parsed.lineItems);
+      await runCompute(parsed.dos, parsed.county, parsed.lineItems, parsed.doctorName);
     }
   }
 

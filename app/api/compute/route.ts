@@ -12,6 +12,7 @@ interface PostBody {
   dosIso: string;
   county: CountyLabel;
   lineItems: LineItem[];
+  doctorName?: string;
 }
 
 export async function POST(req: NextRequest) {

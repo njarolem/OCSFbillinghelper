@@ -169,9 +169,23 @@ function findAscSectionStart(text: string): number {
   return m ? m.index : -1;
 }
 
+function findOtherDoctorsSectionStart(text: string): number {
+  const re = /other\s+doctor|dr\.?\s+\w+'?s?\s+(?:charges?|surgeon)/i;
+  const m = re.exec(text);
+  return m ? m.index : -1;
+}
+
+// Pulls "Dr. <Name>" from the blurb so the Other Doctors table can label its
+// charge column with the actual doctor's name (defaults to "Dr. Roush").
+export function extractDoctorName(text: string): string {
+  const m = /Dr\.?\s+([A-Z][A-Za-z'\-]+)/.exec(text);
+  return m ? `Dr. ${m[1]}` : "Dr. Roush";
+}
+
 export function extractLineItems(text: string): LineItem[] {
   const anchors = extractDateAnchors(text);
   const ascStart = findAscSectionStart(text);
+  const otherStart = findOtherDoctorsSectionStart(text);
   const items: LineItem[] = [];
   let m: RegExpExecArray | null;
   CPT_TOKEN_RE.lastIndex = 0;
@@ -191,14 +205,29 @@ export function extractLineItems(text: string): LineItem[] {
       const preceding = anchors.filter((a) => a.index <= m!.index);
       if (preceding.length > 0) dosIso = preceding[preceding.length - 1].iso;
     }
-    const section: "surgeon" | "asc" =
-      ascStart >= 0 && m.index >= ascStart ? "asc" : "surgeon";
+    // Section precedence: "other doctors" > ASC > surgeon (default).
+    let section: "surgeon" | "asc" | "other" = "surgeon";
+    if (otherStart >= 0 && m.index >= otherStart) section = "other";
+    else if (ascStart >= 0 && m.index >= ascStart) section = "asc";
+
+    // For "other doctors" lines, capture the dollar amount that immediately
+    // follows the CPT (and its modifier suffix), e.g. "63047 $28,000".
+    let drCharge: number | undefined;
+    if (section === "other") {
+      const after = text.slice(m.index + m[0].length, m.index + m[0].length + 80);
+      const dollar = /\$\s*([\d,]+(?:\.\d+)?)/.exec(after);
+      if (dollar) {
+        drCharge = Number(dollar[1].replace(/,/g, ""));
+      }
+    }
+
     items.push({
       rawToken: `${cpt}${modSuffix}`,
       cpt,
       modifiers,
       ...(dosIso ? { dosIso } : {}),
       section,
+      ...(drCharge !== undefined ? { drCharge } : {}),
     });
   }
   return items;
@@ -228,7 +257,10 @@ export function parseBlurb(
       "I resolved the location to Other Florida (locality 99). Please confirm — is the surgery county Miami-Dade, Broward, or Palm Beach? If it's another Florida county, reply \"Other\" to continue.";
   }
 
-  return { dos, county, lineItems, followUp };
+  const hasOtherSection = lineItems.some((li) => li.section === "other");
+  const doctorName = hasOtherSection ? extractDoctorName(text) : undefined;
+
+  return { dos, county, lineItems, followUp, doctorName };
 }
 
 // Helpers used by the engine when caller already has DOS and county

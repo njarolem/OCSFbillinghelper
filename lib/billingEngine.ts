@@ -53,10 +53,11 @@ export interface ComputeInput {
   dosIso: string; // "YYYY-MM-DD"
   county: CountyLabel;
   lineItems: LineItem[];
+  doctorName?: string;
 }
 
 export function compute(input: ComputeInput): BillingResult {
-  const { dosIso, county, lineItems } = input;
+  const { dosIso, county, lineItems, doctorName } = input;
   const year = Number(dosIso.slice(0, 4));
   const dosDisplay = isoToDisplay(dosIso);
   const locality = countyToLocality(county);
@@ -70,9 +71,11 @@ export function compute(input: ComputeInput): BillingResult {
   const allFlags: FcsoFlag[] = [];
 
   // If any line is explicitly tagged with a section, the user has separated
-  // surgeon vs ASC codes in the blurb — respect that strictly. Otherwise
-  // (legacy single-section blurbs) every code feeds both tables.
-  const hasSectionedItems = lineItems.some((li) => li.section === "asc");
+  // surgeon vs ASC vs Other-Doctor codes in the blurb — respect that strictly.
+  // Otherwise (legacy single-section blurbs) every code feeds both tables.
+  const hasSectionedItems = lineItems.some(
+    (li) => li.section === "asc" || li.section === "other",
+  );
 
   for (const li of lineItems) {
     const cpt = li.cpt;
@@ -143,8 +146,13 @@ export function compute(input: ComputeInput): BillingResult {
 
     // When the blurb has explicit sections, only render this code in its own
     // section's table. Otherwise feed both surgeon + ASC tables.
-    const goesToSurgeon = !hasSectionedItems || li.section !== "asc";
-    const goesToAsc = !hasSectionedItems || li.section === "asc";
+    const goesToSurgeon =
+      !hasSectionedItems || (li.section !== "asc" && li.section !== "other");
+    const goesToAsc =
+      !hasSectionedItems
+        ? true
+        : li.section === "asc";
+    const goesToOther = li.section === "other";
 
     if (goesToSurgeon) {
       const isAssistant = li.modifiers.some((m) => ASSISTANT_MODS.has(m));
@@ -160,6 +168,16 @@ export function compute(input: ComputeInput): BillingResult {
       } else {
         surgeonRows.push(row);
       }
+      allFlags.push(...lineFlags);
+    } else if (goesToOther) {
+      otherDoctorRows.push({
+        date: lineDosDisplay,
+        cptDisplay: formatCptDisplay(cpt, li.modifiers),
+        medicare120Raw,
+        ocsfChargeRaw,
+        flags: lineFlags,
+        ...(li.drCharge !== undefined ? { drChargeRaw: li.drCharge } : {}),
+      });
       allFlags.push(...lineFlags);
     }
 
@@ -210,6 +228,9 @@ export function compute(input: ComputeInput): BillingResult {
   const otherTotalOcsf = roundDollars(
     otherDoctorRows.reduce((s, r) => s + r.ocsfChargeRaw, 0),
   );
+  const otherTotalDr = roundDollars(
+    otherDoctorRows.reduce((s, r) => s + (r.drChargeRaw ?? 0), 0),
+  );
 
   return {
     dosDisplay,
@@ -230,6 +251,8 @@ export function compute(input: ComputeInput): BillingResult {
       rows: otherDoctorRows,
       totalMedicare120: otherTotal120,
       totalOcsfCharge: otherTotalOcsf,
+      totalDrCharge: otherTotalDr,
+      doctorName: doctorName ?? "Dr. Roush",
     },
     fcsoFlags: allFlags,
   };
