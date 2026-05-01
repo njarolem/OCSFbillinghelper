@@ -34,6 +34,7 @@ export interface LineItem {
   cpt: string;
   modifiers: Modifier[];
   dosIso?: string; // per-line date override when blurb has multiple DOS
+  section?: "surgeon" | "asc"; // which table this code belongs to
 }
 
 export interface BlurbParseResult {

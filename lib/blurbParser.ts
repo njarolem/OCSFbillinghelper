@@ -160,8 +160,18 @@ function extractDateAnchors(text: string): Array<{ index: number; iso: string }>
   return anchors.sort((a, b) => a.index - b.index);
 }
 
+// Detects where the surgery-center / anesthesia section begins so we can
+// scope CPT codes to the correct table. Returns the character index of the
+// section break, or -1 if the blurb has no explicit ASC section.
+function findAscSectionStart(text: string): number {
+  const re = /surger(?:y|ical)\s+center|anesthesia/i;
+  const m = re.exec(text);
+  return m ? m.index : -1;
+}
+
 export function extractLineItems(text: string): LineItem[] {
   const anchors = extractDateAnchors(text);
+  const ascStart = findAscSectionStart(text);
   const items: LineItem[] = [];
   let m: RegExpExecArray | null;
   CPT_TOKEN_RE.lastIndex = 0;
@@ -176,17 +186,19 @@ export function extractLineItems(text: string): LineItem[] {
         }
       }
     }
-    // Tag this code with the most-recent date anchor that appears before it.
     let dosIso: string | undefined;
     if (anchors.length > 0) {
       const preceding = anchors.filter((a) => a.index <= m!.index);
       if (preceding.length > 0) dosIso = preceding[preceding.length - 1].iso;
     }
+    const section: "surgeon" | "asc" =
+      ascStart >= 0 && m.index >= ascStart ? "asc" : "surgeon";
     items.push({
       rawToken: `${cpt}${modSuffix}`,
       cpt,
       modifiers,
       ...(dosIso ? { dosIso } : {}),
+      section,
     });
   }
   return items;

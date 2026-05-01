@@ -69,6 +69,11 @@ export function compute(input: ComputeInput): BillingResult {
   const ASSISTANT_MODS = new Set(["AS", "80", "82"]);
   const allFlags: FcsoFlag[] = [];
 
+  // If any line is explicitly tagged with a section, the user has separated
+  // surgeon vs ASC codes in the blurb — respect that strictly. Otherwise
+  // (legacy single-section blurbs) every code feeds both tables.
+  const hasSectionedItems = lineItems.some((li) => li.section === "asc");
+
   for (const li of lineItems) {
     const cpt = li.cpt;
     // Use per-line DOS when the blurb contains multiple dates.
@@ -136,50 +141,57 @@ export function compute(input: ComputeInput): BillingResult {
       }
     }
 
-    const isAssistant = li.modifiers.some((m) => ASSISTANT_MODS.has(m));
-    const row: SurgeonRow = {
-      date: lineDosDisplay,
-      cptDisplay: formatCptDisplay(cpt, li.modifiers),
-      medicare120Raw,
-      ocsfChargeRaw,
-      flags: lineFlags,
-    };
-    if (isAssistant) {
-      otherDoctorRows.push(row);
-    } else {
-      surgeonRows.push(row);
-    }
+    // When the blurb has explicit sections, only render this code in its own
+    // section's table. Otherwise feed both surgeon + ASC tables.
+    const goesToSurgeon = !hasSectionedItems || li.section !== "asc";
+    const goesToAsc = !hasSectionedItems || li.section === "asc";
 
-    // ASC table — modifiers never apply.
-    const asc = findAscRow(cpt, ascCounty, lineYear);
-    const ascFlags: FcsoFlag[] = [];
-    let ascMedicare120Raw = 0;
-    if (!asc) {
-      ascFlags.push({
-        cpt,
-        reason: "CPT not found in ASC fee schedule — verify with FCSO",
-        locality,
-        year: lineYear,
-        dosDisplay: lineDosDisplay,
-      });
-    } else {
-      ascMedicare120Raw = asc.asc120Pct;
-    }
-
-    // ASC bilateral: -50 codes bill as two separate lines (LT + RT), each at 1× rate.
-    if (li.modifiers.includes("50")) {
-      ascRows.push({ date: lineDosDisplay, cptDisplay: `${cpt}-LT`, medicare120Raw: ascMedicare120Raw, flags: ascFlags });
-      ascRows.push({ date: lineDosDisplay, cptDisplay: `${cpt}-RT`, medicare120Raw: ascMedicare120Raw, flags: [] });
-    } else {
-      ascRows.push({
+    if (goesToSurgeon) {
+      const isAssistant = li.modifiers.some((m) => ASSISTANT_MODS.has(m));
+      const row: SurgeonRow = {
         date: lineDosDisplay,
-        cptDisplay: cpt,
-        medicare120Raw: ascMedicare120Raw,
-        flags: ascFlags,
-      });
+        cptDisplay: formatCptDisplay(cpt, li.modifiers),
+        medicare120Raw,
+        ocsfChargeRaw,
+        flags: lineFlags,
+      };
+      if (isAssistant) {
+        otherDoctorRows.push(row);
+      } else {
+        surgeonRows.push(row);
+      }
+      allFlags.push(...lineFlags);
     }
 
-    allFlags.push(...lineFlags, ...ascFlags);
+    if (goesToAsc) {
+      const asc = findAscRow(cpt, ascCounty, lineYear);
+      const ascFlags: FcsoFlag[] = [];
+      let ascMedicare120Raw = 0;
+      if (!asc) {
+        ascFlags.push({
+          cpt,
+          reason: "CPT not found in ASC fee schedule — verify with FCSO",
+          locality,
+          year: lineYear,
+          dosDisplay: lineDosDisplay,
+        });
+      } else {
+        ascMedicare120Raw = asc.asc120Pct;
+      }
+
+      if (li.modifiers.includes("50")) {
+        ascRows.push({ date: lineDosDisplay, cptDisplay: `${cpt}-LT`, medicare120Raw: ascMedicare120Raw, flags: ascFlags });
+        ascRows.push({ date: lineDosDisplay, cptDisplay: `${cpt}-RT`, medicare120Raw: ascMedicare120Raw, flags: [] });
+      } else {
+        ascRows.push({
+          date: lineDosDisplay,
+          cptDisplay: formatCptDisplay(cpt, li.modifiers),
+          medicare120Raw: ascMedicare120Raw,
+          flags: ascFlags,
+        });
+      }
+      allFlags.push(...ascFlags);
+    }
   }
 
   const totalMedicare120 = roundDollars(
