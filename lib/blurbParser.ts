@@ -192,21 +192,10 @@ export function extractLineItems(text: string): LineItem[] {
   return items;
 }
 
-// CPT codes in the Surgery section (10000–69999) that have no modifiers
-// likely need laterality clarification for orthopedic billing.
-function surgicalCodesNeedingLaterality(items: LineItem[]): string[] {
-  return items
-    .filter((item) => {
-      if (item.modifiers.length > 0) return false;
-      const n = parseInt(item.cpt, 10);
-      return n >= 10000 && n <= 69999;
-    })
-    .map((item) => item.cpt);
-}
 
 export function parseBlurb(
   text: string,
-  opts: { skipLateralityCheck?: boolean; skipLocalityCheck?: boolean } = {},
+  opts: { skipLocalityCheck?: boolean } = {},
 ): BlurbParseResult {
   const dos = extractDate(text);
   const county = extractCounty(text);
@@ -225,14 +214,6 @@ export function parseBlurb(
   } else if (county === "Other" && !opts.skipLocalityCheck) {
     followUp =
       "I resolved the location to Other Florida (locality 99). Please confirm — is the surgery county Miami-Dade, Broward, or Palm Beach? If it's another Florida county, reply \"Other\" to continue.";
-  } else if (!opts.skipLateralityCheck) {
-    const needsLat = surgicalCodesNeedingLaterality(lineItems);
-    if (needsLat.length > 0) {
-      const list = needsLat.join(", ");
-      followUp =
-        `${list} ${needsLat.length === 1 ? "has" : "have"} no laterality or payment modifier. ` +
-        `Please add -LT, -RT, or -50 (bilateral) to each code — or reply "no modifier" to compute as unilateral.`;
-    }
   }
 
   return { dos, county, lineItems, followUp };

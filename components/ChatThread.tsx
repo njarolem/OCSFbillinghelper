@@ -85,7 +85,6 @@ export default function ChatThread({
     "awaiting-blurb" | "awaiting-followup" | "computing" | "done" | "error"
   >("awaiting-blurb");
   const [pendingFollowUp, setPendingFollowUp] = useState<string | null>(null);
-  const [lateralityAnswered, setLateralityAnswered] = useState(false);
   const [result, setResult] = useState<BillingResult | null>(null);
   const [savedNotice, setSavedNotice] = useState<string | null>(null);
 
@@ -195,7 +194,7 @@ export default function ChatThread({
     setOriginalBlurb(blurb);
     setConversationText(blurb);
 
-    const parsed = parseBlurb(blurb, { skipLateralityCheck: false });
+    const parsed = parseBlurb(blurb);
 
     if (parsed.dos && !isDateInRange(parsed.dos)) {
       appendAssistant(
@@ -225,14 +224,7 @@ export default function ChatThread({
       setFollowUps((f) => [...f, { question: pendingFollowUp, answer }]);
     }
 
-    // If user answered the laterality question, skip it on re-parse.
-    const noModifierAnswer = /no[\s-]?modifier|unilateral|skip|n\/a|none/i.test(answer);
-    const skipLat = lateralityAnswered || noModifierAnswer;
-    if (noModifierAnswer || pendingFollowUp?.includes("laterality")) {
-      setLateralityAnswered(true);
-    }
-
-    const parsed = parseBlurb(merged, { skipLateralityCheck: skipLat });
+    const parsed = parseBlurb(merged);
     if (parsed.dos && !isDateInRange(parsed.dos)) {
       appendAssistant(
         `Date of service ${isoToDisplay(parsed.dos)} is outside the supported range (2022–2026).`,
@@ -275,7 +267,6 @@ export default function ChatThread({
       setPendingFollowUp(null);
       setResult(null);
       setSavedNotice(null);
-      setLateralityAnswered(false);
       onNewCaseExternal?.();
       void handleFirstSubmit(text);
     }
@@ -299,7 +290,6 @@ export default function ChatThread({
     setPendingFollowUp(null);
     setResult(null);
     setSavedNotice(null);
-    setLateralityAnswered(false);
   }
 
   async function downloadCurrentSession() {
