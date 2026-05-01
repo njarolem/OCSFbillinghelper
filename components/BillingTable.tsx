@@ -10,14 +10,16 @@ interface Props {
   markdown: string;
   /** Optional footnote rendered below the table in italic small text. */
   footnote?: string;
+  /** Optional intro paragraph copied above the table when the user clicks Copy. */
+  intro?: string;
 }
 
-export default function BillingTable({ title, markdown, footnote }: Props) {
+export default function BillingTable({ title, markdown, footnote, intro }: Props) {
   const [copied, setCopied] = useState(false);
 
   async function copy() {
     try {
-      const { html, text } = mdTableToHtmlAndText(markdown);
+      const { html, text } = mdTableToHtmlAndText(markdown, intro);
       if (
         typeof ClipboardItem !== "undefined" &&
         navigator.clipboard?.write
@@ -76,7 +78,7 @@ function escapeHtml(s: string): string {
 
 // Converts our generated markdown tables into a real HTML <table> (so Word
 // pastes them as an actual table) and a tab-delimited plain-text fallback.
-function mdTableToHtmlAndText(md: string): { html: string; text: string } {
+function mdTableToHtmlAndText(md: string, intro?: string): { html: string; text: string } {
   const lines = md.split("\n").filter((l) => l.trim().startsWith("|"));
   const rows = lines.map((l) =>
     l
@@ -118,10 +120,16 @@ function mdTableToHtmlAndText(md: string): { html: string; text: string } {
       .join("") +
     "</tbody>";
 
-  const html =
+  const tableHtml =
     `<table style="border-collapse:collapse;border:1px solid #000;font-family:Calibri,Arial,sans-serif;font-size:11pt;">${thead}${tbody}</table>`;
 
-  const text = dataRows.map((r) => r.join("\t")).join("\n");
+  const introHtml = intro
+    ? `<p style="font-family:Calibri,Arial,sans-serif;font-size:11pt;margin:0 0 8pt 0;">${escapeHtml(intro)}</p>`
+    : "";
+  const html = introHtml + tableHtml;
+
+  const tableText = dataRows.map((r) => r.join("\t")).join("\n");
+  const text = intro ? `${intro}\n\n${tableText}` : tableText;
 
   return { html, text };
 }
