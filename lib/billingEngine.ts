@@ -152,12 +152,18 @@ export function compute(input: ComputeInput): BillingResult {
       ascMedicare120Raw = asc.asc120Pct;
     }
 
-    ascRows.push({
-      date: dosDisplay,
-      cptDisplay: formatCptDisplay(cpt, li.modifiers),
-      medicare120Raw: ascMedicare120Raw,
-      flags: ascFlags,
-    });
+    // ASC bilateral: -50 codes bill as two separate lines (LT + RT), each at 1× rate.
+    if (li.modifiers.includes("50")) {
+      ascRows.push({ date: dosDisplay, cptDisplay: `${cpt}-LT`, medicare120Raw: ascMedicare120Raw, flags: ascFlags });
+      ascRows.push({ date: dosDisplay, cptDisplay: `${cpt}-RT`, medicare120Raw: ascMedicare120Raw, flags: [] });
+    } else {
+      ascRows.push({
+        date: dosDisplay,
+        cptDisplay: cpt,
+        medicare120Raw: ascMedicare120Raw,
+        flags: ascFlags,
+      });
+    }
 
     allFlags.push(...lineFlags, ...ascFlags);
   }

@@ -25,12 +25,12 @@ body {
   text-align: left;
 }
 .md-table thead th {
-  background: #e0f2fe;
-  color: #0369a1;
+  background: #f8f8f8;
+  color: #111111;
   font-weight: 600;
 }
 .md-table tbody tr:nth-child(even) {
-  background: #f1f5f9;
+  background: #f8f8f8;
 }
 .md-table tbody tr:last-child td {
   font-weight: 600;

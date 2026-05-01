@@ -28,7 +28,7 @@ export default function BillingTable({ title, markdown, footnote }: Props) {
   return (
     <section className="bg-white border border-border rounded-lg shadow-card my-3 overflow-hidden">
       <header className="flex items-center justify-between px-4 py-2 border-b border-border bg-slate-50">
-        <h3 className="text-sm font-semibold text-accent">{title}</h3>
+        <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
         <button
           type="button"
           onClick={copy}
