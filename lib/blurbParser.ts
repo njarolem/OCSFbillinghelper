@@ -3,9 +3,11 @@
 
 import type {
   BlurbParseResult,
+  ConflictItem,
   CountyLabel,
   LineItem,
   Modifier,
+  PaymentModifier,
 } from "@/types/billing";
 
 const SUPPORTED_YEARS = [2022, 2023, 2024, 2025, 2026];
@@ -249,6 +251,41 @@ export function extractLineItems(text: string): LineItem[] {
 }
 
 
+// Returns one entry per CPT line that has 2+ stacked payment modifiers
+// (any combination of -50, -AS, -80, -82). Side modifiers (LT/RT) don't
+// count toward conflicts because they're payment-neutral.
+export function detectModifierConflicts(items: LineItem[]): ConflictItem[] {
+  const PAYMENT = new Set<string>(["50", "AS", "80", "82"]);
+  const conflicts: ConflictItem[] = [];
+  items.forEach((li, idx) => {
+    const paymentMods = li.modifiers.filter((m) => PAYMENT.has(m)) as PaymentModifier[];
+    if (paymentMods.length > 1) {
+      conflicts.push({ index: idx, cpt: li.cpt, paymentMods });
+    }
+  });
+  return conflicts;
+}
+
+const PAYMENT_MOD_LABELS: Record<PaymentModifier, string> = {
+  "50": "-50 (bilateral, ×1.5)",
+  AS: "-AS (non-physician assistant, ×0.16)",
+  "80": "-80 (assistant surgeon, ×0.20)",
+  "82": "-82 (assistant surgeon when no qualified resident, ×0.20)",
+};
+
+function renderConflictFollowUp(conflicts: ConflictItem[]): string {
+  const lines = conflicts.map((c) => {
+    const mods = c.paymentMods.map((m) => PAYMENT_MOD_LABELS[m]).join(" and ");
+    return `• ${c.cpt} has two payment modifiers: ${mods}.`;
+  });
+  return [
+    `${conflicts.length === 1 ? "One CPT line has" : "Some CPT lines have"} stacked payment modifiers:`,
+    ...lines,
+    "",
+    `Reply with the modifier you want kept for each (e.g., "${conflicts[0].cpt} -${conflicts[0].paymentMods[0]}") or "both" to bill them as separate lines.`,
+  ].join("\n");
+}
+
 export function parseBlurb(
   text: string,
   opts: { skipLocalityCheck?: boolean } = {},
@@ -256,6 +293,7 @@ export function parseBlurb(
   const dos = extractDate(text);
   const county = extractCounty(text);
   const lineItems = extractLineItems(text);
+  const conflicts = detectModifierConflicts(lineItems);
 
   let followUp: string | null = null;
   if (lineItems.length === 0) {
@@ -267,6 +305,8 @@ export function parseBlurb(
   } else if (!county) {
     followUp =
       "Which Florida county was the surgery performed in? (Miami-Dade, Broward, Palm Beach, or Other Florida)";
+  } else if (conflicts.length > 0) {
+    followUp = renderConflictFollowUp(conflicts);
   } else if (county === "Other" && !opts.skipLocalityCheck) {
     followUp =
       "I resolved the location to Other Florida (locality 99). Please confirm — is the surgery county Miami-Dade, Broward, or Palm Beach? If it's another Florida county, reply \"Other\" to continue.";
@@ -275,7 +315,14 @@ export function parseBlurb(
   const hasOtherSection = lineItems.some((li) => li.section === "other");
   const doctorName = hasOtherSection ? extractDoctorName(text) : undefined;
 
-  return { dos, county, lineItems, followUp, doctorName };
+  return {
+    dos,
+    county,
+    lineItems,
+    followUp,
+    doctorName,
+    ...(conflicts.length > 0 ? { conflicts } : {}),
+  };
 }
 
 // Helpers used by the engine when caller already has DOS and county

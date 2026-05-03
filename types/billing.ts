@@ -38,12 +38,19 @@ export interface LineItem {
   drCharge?: number; // pre-supplied "Dr. X" charge for the Other Doctors table
 }
 
+export interface ConflictItem {
+  index: number; // index into lineItems
+  cpt: string;
+  paymentMods: PaymentModifier[];
+}
+
 export interface BlurbParseResult {
   dos: string | null; // ISO date "YYYY-MM-DD"
   county: CountyLabel | null;
   lineItems: LineItem[];
   followUp: string | null; // populated when something is missing
   doctorName?: string; // detected "Dr. <Name>" for the Other Doctors column header
+  conflicts?: ConflictItem[]; // CPT lines with stacked payment modifiers awaiting resolution
 }
 
 export interface SurgeonRow {

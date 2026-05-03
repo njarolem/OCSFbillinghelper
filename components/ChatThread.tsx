@@ -55,6 +55,64 @@ type Msg =
 let _nextId = 0;
 const newId = () => `m_${++_nextId}`;
 
+// Rewrites the conversation text to resolve modifier conflicts based on the
+// user's answer. For each conflicting CPT, finds the user's chosen modifier
+// (e.g. "27447 -50" → keep -50) and rewrites the original stacked token
+// (e.g. "27447-50-AS") to the resolved form. "both" splits into two tokens.
+function resolveConflictsInText(
+  text: string,
+  conflicts: Array<{ cpt: string; paymentMods: string[] }>,
+  answer: string,
+): string {
+  const wantsBoth = /\bboth\b/i.test(answer);
+  let out = text;
+  for (const c of conflicts) {
+    // Pattern matches e.g. "27447-50-AS" — CPT followed by 2+ "-MOD" segments.
+    const tokenRe = new RegExp(
+      `\\b${c.cpt}((?:-[A-Z0-9]{1,3})+)\\b`,
+      "gi",
+    );
+
+    let chosen: string | null = null;
+    if (!wantsBoth) {
+      // Look near the CPT in the answer for a chosen modifier (e.g. "27447 -50").
+      const near = new RegExp(
+        `${c.cpt}[^\\n]*?-?\\s*-?(${c.paymentMods.join("|")})\\b`,
+        "i",
+      );
+      const m = near.exec(answer);
+      if (m) chosen = m[1].toUpperCase();
+      // Fallback: bare modifier in answer when there's only one conflict.
+      if (!chosen && conflicts.length === 1) {
+        const bare = new RegExp(`-?(${c.paymentMods.join("|")})\\b`, "i");
+        const bm = bare.exec(answer);
+        if (bm) chosen = bm[1].toUpperCase();
+      }
+    }
+
+    out = out.replace(tokenRe, (full, suffix: string) => {
+      const sideMods = suffix
+        .split("-")
+        .filter(Boolean)
+        .filter((s) => /^(LT|RT)$/i.test(s));
+      const sideSuffix = sideMods.length > 0 ? `-${sideMods.join("-")}` : "";
+
+      if (wantsBoth) {
+        // Bill both as separate lines, preserving any side modifiers on each.
+        return c.paymentMods
+          .map((m) => `${c.cpt}-${m}${sideSuffix}`)
+          .join(", ");
+      }
+      if (chosen) {
+        return `${c.cpt}-${chosen}${sideSuffix}`;
+      }
+      // No clear answer — leave original token alone; the parser will re-prompt.
+      return full;
+    });
+  }
+  return out;
+}
+
 const SURGEON_FOOTNOTE =
   "No multi-procedure (-51) reduction applied. Each line capped at 120% of its own Medicare rate per LOP convention.";
 
@@ -85,6 +143,9 @@ export default function ChatThread({
     "awaiting-blurb" | "awaiting-followup" | "computing" | "done" | "error"
   >("awaiting-blurb");
   const [pendingFollowUp, setPendingFollowUp] = useState<string | null>(null);
+  const [pendingConflicts, setPendingConflicts] = useState<
+    Array<{ cpt: string; paymentMods: string[] }>
+  >([]);
   const [result, setResult] = useState<BillingResult | null>(null);
   const [savedNotice, setSavedNotice] = useState<string | null>(null);
 
@@ -156,6 +217,20 @@ export default function ChatThread({
     }
     setResult(data.result);
     appendTables(data.result);
+
+    // Note when an input-side column header was included but has no data
+    // beneath it (e.g., user pasted a "Dr. Roush" column with empty cells).
+    const otherRows = data.result.otherDoctors.rows;
+    if (
+      otherRows.length > 0 &&
+      otherRows.every((r) => r.drChargeRaw === undefined || r.drChargeRaw === 0)
+    ) {
+      const drName = data.result.otherDoctors.doctorName || "Dr.";
+      appendAssistant(
+        `Note: the ${drName} column was included in your input but no dollar amounts were provided in any row.`,
+      );
+    }
+
     if (data.result.fcsoFlags.length > 0) {
       appendAssistantMd(renderFcsoWarnings(data.result.fcsoFlags));
     }
@@ -208,6 +283,7 @@ export default function ChatThread({
     if (parsed.followUp) {
       appendAssistant(parsed.followUp);
       setPendingFollowUp(parsed.followUp);
+      setPendingConflicts(parsed.conflicts ?? []);
       setPhase("awaiting-followup");
       return;
     }
@@ -219,11 +295,20 @@ export default function ChatThread({
 
   async function handleFollowUpAnswer(answer: string) {
     appendUser(answer);
-    const merged = `${conversationText}\n${answer}`;
-    setConversationText(merged);
     if (pendingFollowUp) {
       setFollowUps((f) => [...f, { question: pendingFollowUp, answer }]);
     }
+
+    // If the pending question was a modifier-conflict prompt, rewrite the
+    // conversation text to apply the user's choice before re-parsing.
+    let merged: string;
+    if (pendingConflicts.length > 0) {
+      merged = resolveConflictsInText(conversationText, pendingConflicts, answer);
+      setPendingConflicts([]);
+    } else {
+      merged = `${conversationText}\n${answer}`;
+    }
+    setConversationText(merged);
 
     const parsed = parseBlurb(merged);
     if (parsed.dos && !isDateInRange(parsed.dos)) {
@@ -236,11 +321,13 @@ export default function ChatThread({
     if (parsed.followUp) {
       appendAssistant(parsed.followUp);
       setPendingFollowUp(parsed.followUp);
+      setPendingConflicts(parsed.conflicts ?? []);
       setPhase("awaiting-followup");
       return;
     }
     if (parsed.dos && parsed.county && parsed.lineItems.length > 0) {
       setPendingFollowUp(null);
+      setPendingConflicts([]);
       await runCompute(parsed.dos, parsed.county, parsed.lineItems, parsed.doctorName);
     }
   }
@@ -266,6 +353,7 @@ export default function ChatThread({
       setOriginalBlurb("");
       setPhase("awaiting-blurb");
       setPendingFollowUp(null);
+      setPendingConflicts([]);
       setResult(null);
       setSavedNotice(null);
       onNewCaseExternal?.();
