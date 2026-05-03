@@ -155,19 +155,13 @@ export function compute(input: ComputeInput): BillingResult {
     const goesToOther = li.section === "other";
 
     if (goesToSurgeon) {
-      const isAssistant = li.modifiers.some((m) => ASSISTANT_MODS.has(m));
-      const row: SurgeonRow = {
+      surgeonRows.push({
         date: lineDosDisplay,
         cptDisplay: formatCptDisplay(cpt, li.modifiers),
         medicare120Raw,
         ocsfChargeRaw,
         flags: lineFlags,
-      };
-      if (isAssistant) {
-        otherDoctorRows.push(row);
-      } else {
-        surgeonRows.push(row);
-      }
+      });
       allFlags.push(...lineFlags);
     } else if (goesToOther) {
       otherDoctorRows.push({
@@ -181,7 +175,7 @@ export function compute(input: ComputeInput): BillingResult {
       allFlags.push(...lineFlags);
     }
 
-    if (goesToAsc) {
+    if (goesToAsc && !li.modifiers.some((m) => ASSISTANT_MODS.has(m))) {
       const asc = findAscRow(cpt, ascCounty, lineYear);
       const ascFlags: FcsoFlag[] = [];
       let ascMedicare120Raw = 0;
