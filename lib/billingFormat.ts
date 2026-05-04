@@ -72,9 +72,12 @@ export function surgeonMultiplier(modifiers: Modifier[]): {
 }
 
 // OCSF charge multiplier on OCSF_STANDARD_FEE.
-// -50 → 2×; everything else (including stacking with -50) → 2×; otherwise 1×.
+// -50 → 2×; -AS → 0.16×; -80/-82 → 0.20×; side modifiers (LT/RT) → 1×.
 export function ocsfMultiplier(modifiers: Modifier[]): number {
-  return modifiers.includes("50") ? 2 : 1;
+  if (modifiers.includes("50")) return 2;
+  if (modifiers.includes("AS")) return 0.16;
+  if (modifiers.includes("80") || modifiers.includes("82")) return 0.20;
+  return 1;
 }
 
 export function formatCptDisplay(cpt: string, modifiers: Modifier[]): string {
