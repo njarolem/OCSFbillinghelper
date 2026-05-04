@@ -310,7 +310,8 @@ export default function ChatThread({
     }
     setConversationText(merged);
 
-    const parsed = parseBlurb(merged);
+    const isOtherConfirm = pendingFollowUp?.includes("Other Florida") ?? false;
+    const parsed = parseBlurb(merged, { skipLocalityCheck: isOtherConfirm });
     if (parsed.dos && !isDateInRange(parsed.dos)) {
       appendAssistant(
         `Date of service ${isoToDisplay(parsed.dos)} is outside the supported range (2022–2026).`,

@@ -51,12 +51,19 @@ const CITY_TO_COUNTY: Record<string, CountyLabel> = {
 
 // County phrases that resolve directly.
 const COUNTY_PHRASES: Array<[RegExp, CountyLabel]> = [
+  // Unambiguous locality codes checked first.
+  [/\blocality\s*04\b/i, "Miami-Dade"],
+  [/\blocality\s*99\b/i, "Other"],
+  // Named counties.
   [/\bmiami[\s-]?dade\b/i, "Miami-Dade"],
   [/\bdade\b/i, "Miami-Dade"],
   [/\bbroward\b/i, "Broward"],
   [/\bpalm\s*beach\b/i, "Palm Beach"],
   [/\bpalm\s*bch\b/i, "Palm Beach"],
   [/\bpbc\b/i, "Palm Beach"],
+  // "Other Florida" / "Other FL" — checked last so named counties take priority.
+  [/\bother\s+(?:florida|fl)\b/i, "Other"],
+  [/\b(?:other|99)\b/i, "Other"],
 ];
 
 const MONTHS: Record<string, number> = {
