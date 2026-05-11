@@ -148,6 +148,25 @@ export function renderOtherDoctorsTable(result: BillingResult): string {
   return [header, ...dataRows, totals].join("\n");
 }
 
+export function renderCompareTable(result: BillingResult): string {
+  if (!result.compare) return "";
+  const rows = result.compare.rows;
+
+  const header = `| DATE | CPT | THEIR CHARGE | OCSF CHARGE |\n| ---- | --- | ------------ | ----------- |`;
+
+  const dataRows = rows.map((r) => {
+    const their = r.theirChargeRaw > 0 ? formatDollars(r.theirChargeRaw) : "";
+    const ocsf = r.ocsfChargeRaw > 0 ? formatDollars(r.ocsfChargeRaw) : "$0";
+    return `| ${r.date} | ${r.cptDisplay} | ${their} | ${ocsf} |`;
+  });
+
+  const theirTotal = `**$${result.compare.totalTheirCharge.toLocaleString("en-US")}**`;
+  const ocsfTotal = `**$${result.compare.totalOcsfCharge.toLocaleString("en-US")}**`;
+  const totals = `| **TOTALS** |  | ${theirTotal} | ${ocsfTotal} |`;
+
+  return [header, ...dataRows, totals].join("\n");
+}
+
 export function renderAscTable(result: BillingResult): string {
   const showMedicare = result.asc.rows.some((r) => r.medicare120Raw > 0);
 

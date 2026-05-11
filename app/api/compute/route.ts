@@ -4,7 +4,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { compute } from "@/lib/billingEngine";
 import { isDateInRange } from "@/lib/blurbParser";
-import type { CountyLabel, LineItem } from "@/types/billing";
+import type {
+  CountyLabel,
+  LineItem,
+  ParsedCompareRow,
+  ResultMode,
+} from "@/types/billing";
 
 export const runtime = "nodejs";
 
@@ -13,12 +18,25 @@ interface PostBody {
   county: CountyLabel;
   lineItems: LineItem[];
   doctorName?: string;
+  mode?: ResultMode;
+  compareRows?: ParsedCompareRow[];
 }
 
 export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => null)) as PostBody | null;
   if (!body) {
     return NextResponse.json({ ok: false, error: "Bad request" }, { status: 400 });
+  }
+
+  if (body.mode === "compare") {
+    if (!body.compareRows || body.compareRows.length === 0) {
+      return NextResponse.json(
+        { ok: false, error: "No compare rows provided." },
+        { status: 400 },
+      );
+    }
+    const result = compute(body);
+    return NextResponse.json({ ok: true, result });
   }
 
   if (!isDateInRange(body.dosIso)) {

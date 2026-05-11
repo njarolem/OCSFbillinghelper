@@ -7,6 +7,7 @@ import type {
   CountyLabel,
   LineItem,
   Modifier,
+  ParsedCompareRow,
   PaymentModifier,
 } from "@/types/billing";
 
@@ -293,10 +294,103 @@ function renderConflictFollowUp(conflicts: ConflictItem[]): string {
   ].join("\n");
 }
 
+// Parses a 4-column compare table input where the OCSF Charge column is blank:
+//
+//   | Date     | CPT      | Dr. Smith | OCSF Charge |
+//   | 5/1/2025 | 27447-LT | $25,000   |             |
+//
+// Returns the parsed rows when:
+//   - At least one line in the text has 4+ pipe-delimited cells
+//   - The 4-column header row's last cell matches /ocsf\s*charge/i
+//   - At least one data row leaves the last cell empty
+//
+// Rows that already have an OCSF value in the input are preserved unchanged
+// (their `theirCharge` flows through but `dosIso` parsing still happens so the
+// row renders consistently).
+export function detectCompareTable(text: string): ParsedCompareRow[] | null {
+  const lines = text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0 && l.includes("|"));
+  if (lines.length < 2) return null;
+
+  // Find the first row that looks like a 4-column header containing "OCSF Charge".
+  let headerIdx = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const cells = splitPipeRow(lines[i]);
+    if (cells.length !== 4) continue;
+    if (/ocsf\s*charge/i.test(cells[3])) {
+      headerIdx = i;
+      break;
+    }
+  }
+  if (headerIdx === -1) return null;
+
+  const rows: ParsedCompareRow[] = [];
+  let sawBlankOcsf = false;
+
+  for (let i = headerIdx + 1; i < lines.length; i++) {
+    const cells = splitPipeRow(lines[i]);
+    if (cells.length !== 4) continue;
+    // Skip markdown separator rows like "|------|----|----|----|"
+    if (cells.every((c) => /^[-:\s]+$/.test(c))) continue;
+
+    const dateCell = cells[0];
+    const cptCell = cells[1];
+    const chargeCell = cells[2];
+    const ocsfCell = cells[3];
+
+    if (ocsfCell.trim() === "") sawBlankOcsf = true;
+
+    const dosIso = extractDate(dateCell);
+    if (!dosIso) continue;
+
+    CPT_TOKEN_RE.lastIndex = 0;
+    const m = CPT_TOKEN_RE.exec(cptCell);
+    if (!m) continue;
+    const cpt = m[1].toUpperCase();
+    const modSuffix = (m[2] || "").toUpperCase();
+    const modifiers: Modifier[] = [];
+    if (modSuffix) {
+      for (const seg of modSuffix.split("-").filter(Boolean)) {
+        if (PAYMENT_MODS.has(seg) || SIDE_MODS.has(seg)) {
+          modifiers.push(seg as Modifier);
+        }
+      }
+    }
+
+    const dollar = /\$?\s*([\d,]+(?:\.\d+)?)/.exec(chargeCell);
+    const theirCharge = dollar ? Number(dollar[1].replace(/,/g, "")) : 0;
+
+    rows.push({ dosIso, cpt, modifiers, theirCharge });
+  }
+
+  if (rows.length === 0 || !sawBlankOcsf) return null;
+  return rows;
+}
+
+function splitPipeRow(line: string): string[] {
+  // Strip leading/trailing pipes, then split on |.
+  return line.replace(/^\||\|$/g, "").split("|").map((c) => c.trim());
+}
+
 export function parseBlurb(
   text: string,
   opts: { skipLocalityCheck?: boolean } = {},
 ): BlurbParseResult {
+  // Compare-table mode short-circuits the normal flow.
+  const compareRows = detectCompareTable(text);
+  if (compareRows) {
+    return {
+      dos: null,
+      county: null,
+      lineItems: [],
+      followUp: null,
+      mode: "compare",
+      compareRows,
+    };
+  }
+
   const dos = extractDate(text);
   const county = extractCounty(text);
   const lineItems = extractLineItems(text);

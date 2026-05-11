@@ -27,9 +27,12 @@ import {
 import type {
   AscBillingRow,
   BillingResult,
+  CompareRow,
   CountyLabel,
   FcsoFlag,
   LineItem,
+  ParsedCompareRow,
+  ResultMode,
   SurgeonRow,
 } from "@/types/billing";
 
@@ -54,9 +57,14 @@ export interface ComputeInput {
   county: CountyLabel;
   lineItems: LineItem[];
   doctorName?: string;
+  mode?: ResultMode;
+  compareRows?: ParsedCompareRow[];
 }
 
 export function compute(input: ComputeInput): BillingResult {
+  if (input.mode === "compare" && input.compareRows) {
+    return computeCompare(input.compareRows);
+  }
   const { dosIso, county, lineItems, doctorName } = input;
   const year = Number(dosIso.slice(0, 4));
   const dosDisplay = isoToDisplay(dosIso);
@@ -249,5 +257,80 @@ export function compute(input: ComputeInput): BillingResult {
       doctorName: doctorName ?? "Dr. Roush",
     },
     fcsoFlags: allFlags,
+    mode: "normal",
+  };
+}
+
+// Compare-mode compute: only fills the OCSF Charge column. OCSF fees are
+// locality-independent in the CSV so we always look up at locality "03".
+function computeCompare(parsedRows: ParsedCompareRow[]): BillingResult {
+  const compareRows: CompareRow[] = [];
+  const allFlags: FcsoFlag[] = [];
+  const locality = "03"; // OCSF fees are uniform across localities
+
+  for (const r of parsedRows) {
+    const year = Number(r.dosIso.slice(0, 4));
+    const dateDisplay = isoToDisplay(r.dosIso);
+    const phys = findPhysicianRow(r.cpt, locality, year);
+    const flags: FcsoFlag[] = [];
+
+    let ocsfChargeRaw = 0;
+    if (!phys) {
+      flags.push({
+        cpt: r.cpt,
+        reason:
+          "CPT not found in physician fee schedule for this year (OCSF lookup)",
+        locality,
+        year,
+        dosDisplay: dateDisplay,
+      });
+    } else {
+      ocsfChargeRaw = phys.ocsfStandardFee * ocsfMultiplier(r.modifiers);
+    }
+
+    compareRows.push({
+      date: dateDisplay,
+      cptDisplay: formatCptDisplay(r.cpt, r.modifiers),
+      theirChargeRaw: r.theirCharge,
+      ocsfChargeRaw,
+      flags,
+    });
+    allFlags.push(...flags);
+  }
+
+  const totalTheir = roundDollars(
+    compareRows.reduce((s, r) => s + r.theirChargeRaw, 0),
+  );
+  const totalOcsf = roundDollars(
+    compareRows.reduce((s, r) => s + r.ocsfChargeRaw, 0),
+  );
+
+  // Pick a DOS for the header from the first row; year from same.
+  const firstIso = parsedRows[0]?.dosIso ?? "";
+  const dosDisplay = firstIso ? isoToDisplay(firstIso) : "";
+  const year = firstIso ? Number(firstIso.slice(0, 4)) : 0;
+
+  return {
+    dosDisplay,
+    year,
+    county: "Other",
+    locality,
+    ascCounty: "AllOtherFL",
+    surgeon: { rows: [], totalMedicare120: 0, totalOcsfCharge: 0 },
+    asc: { rows: [], totalMedicare120: 0 },
+    otherDoctors: {
+      rows: [],
+      totalMedicare120: 0,
+      totalOcsfCharge: 0,
+      totalDrCharge: 0,
+      doctorName: "",
+    },
+    fcsoFlags: allFlags,
+    mode: "compare",
+    compare: {
+      rows: compareRows,
+      totalTheirCharge: totalTheir,
+      totalOcsfCharge: totalOcsf,
+    },
   };
 }

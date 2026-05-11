@@ -44,6 +44,15 @@ export interface ConflictItem {
   paymentMods: PaymentModifier[];
 }
 
+export type ResultMode = "normal" | "compare";
+
+export interface ParsedCompareRow {
+  dosIso: string; // "YYYY-MM-DD"
+  cpt: string;
+  modifiers: Modifier[];
+  theirCharge: number; // dollars from input
+}
+
 export interface BlurbParseResult {
   dos: string | null; // ISO date "YYYY-MM-DD"
   county: CountyLabel | null;
@@ -51,6 +60,16 @@ export interface BlurbParseResult {
   followUp: string | null; // populated when something is missing
   doctorName?: string; // detected "Dr. <Name>" for the Other Doctors column header
   conflicts?: ConflictItem[]; // CPT lines with stacked payment modifiers awaiting resolution
+  mode?: ResultMode; // "compare" when a 4-column compare table was detected
+  compareRows?: ParsedCompareRow[]; // raw rows when mode === "compare"
+}
+
+export interface CompareRow {
+  date: string; // MM/DD/YYYY display
+  cptDisplay: string;
+  theirChargeRaw: number;
+  ocsfChargeRaw: number;
+  flags: FcsoFlag[];
 }
 
 export interface SurgeonRow {
@@ -100,4 +119,10 @@ export interface BillingResult {
     doctorName: string;
   };
   fcsoFlags: FcsoFlag[];
+  mode?: ResultMode; // "compare" when result is from compare-table input
+  compare?: {
+    rows: CompareRow[];
+    totalTheirCharge: number;
+    totalOcsfCharge: number;
+  };
 }

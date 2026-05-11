@@ -9,6 +9,7 @@ import {
 import {
   countyToAscCounty,
   renderAscTable,
+  renderCompareTable,
   renderOtherDoctorsTable,
   renderSurgeonTable,
 } from "@/lib/billingFormat";
@@ -18,6 +19,7 @@ import type {
   CountyLabel,
   LineItem,
   Modifier,
+  ParsedCompareRow,
 } from "@/types/billing";
 
 const VALID_MODIFIERS: ReadonlySet<string> = new Set([
@@ -288,9 +290,38 @@ export default function ChatThread({
       return;
     }
 
+    if (parsed.mode === "compare" && parsed.compareRows) {
+      await runComputeCompare(parsed.compareRows);
+      return;
+    }
+
     if (parsed.dos && parsed.county && parsed.lineItems.length > 0) {
       await runCompute(parsed.dos, parsed.county, parsed.lineItems, parsed.doctorName);
     }
+  }
+
+  async function runComputeCompare(compareRows: ParsedCompareRow[]) {
+    setPhase("computing");
+    const res = await fetch("/api/compute", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ mode: "compare", compareRows }),
+    });
+    const data = (await res.json()) as
+      | { ok: true; result: BillingResult }
+      | { ok: false; error: string };
+    if (!data.ok) {
+      appendAssistant(`Error: ${data.error}`);
+      setPhase("error");
+      return;
+    }
+    setResult(data.result);
+    appendTables(data.result);
+
+    if (data.result.fcsoFlags.length > 0) {
+      appendAssistantMd(renderFcsoWarnings(data.result.fcsoFlags));
+    }
+    setPhase("done");
   }
 
   async function handleFollowUpAnswer(answer: string) {
@@ -539,6 +570,19 @@ function TablesBlock({
   const surgeonMd = useMemo(() => renderSurgeonTable(result), [result]);
   const ascMd = useMemo(() => renderAscTable(ascResult), [ascResult]);
   const otherDoctorsMd = useMemo(() => renderOtherDoctorsTable(result), [result]);
+  const compareMd = useMemo(() => renderCompareTable(result), [result]);
+
+  if (result.mode === "compare" && result.compare) {
+    return (
+      <div className="my-2">
+        <BillingTable
+          title="Doctor Charge vs OCSF"
+          markdown={compareMd}
+          intro="Comparison of the other doctor's charges with the equivalent OCSF charges for the same CPT codes."
+        />
+      </div>
+    );
+  }
 
   async function recomputeAscFor(other: CountyLabel) {
     setRecomputing(true);
