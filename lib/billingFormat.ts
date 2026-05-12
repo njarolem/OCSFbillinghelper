@@ -152,19 +152,17 @@ export function renderCompareTable(result: BillingResult): string {
   if (!result.compare) return "";
   const rows = result.compare.rows;
 
-  const header = `| DATE | CPT | THEIR CHARGE | OCSF CHARGE |\n| ---- | --- | ------------ | ----------- |`;
+  // Plain pipe-text format that mirrors the input the user pastes.
+  // No markdown table syntax, no totals row.
+  const header = `DATE | CPT CODE | CHARGE | OCSF CHARGE`;
 
   const dataRows = rows.map((r) => {
-    const their = r.theirChargeRaw > 0 ? formatDollars(r.theirChargeRaw) : "";
+    const their = r.theirChargeDisplay || (r.theirChargeRaw > 0 ? formatDollars(r.theirChargeRaw) : "");
     const ocsf = r.ocsfChargeRaw > 0 ? formatDollars(r.ocsfChargeRaw) : "$0";
-    return `| ${r.date} | ${r.cptDisplay} | ${their} | ${ocsf} |`;
+    return `${r.date} | ${r.cptDisplay} | ${their} | ${ocsf}`;
   });
 
-  const theirTotal = `**$${result.compare.totalTheirCharge.toLocaleString("en-US")}**`;
-  const ocsfTotal = `**$${result.compare.totalOcsfCharge.toLocaleString("en-US")}**`;
-  const totals = `| **TOTALS** |  | ${theirTotal} | ${ocsfTotal} |`;
-
-  return [header, ...dataRows, totals].join("\n");
+  return [header, ...dataRows].join("\n");
 }
 
 export function renderAscTable(result: BillingResult): string {

@@ -575,11 +575,18 @@ function TablesBlock({
   if (result.mode === "compare" && result.compare) {
     return (
       <div className="my-2">
-        <BillingTable
-          title="Doctor Charge vs OCSF"
-          markdown={compareMd}
-          intro="Comparison of the other doctor's charges with the equivalent OCSF charges for the same CPT codes."
-        />
+        <pre className="whitespace-pre font-sans text-sm leading-6">
+          {compareMd}
+        </pre>
+        <button
+          type="button"
+          onClick={() => {
+            navigator.clipboard?.writeText(compareMd);
+          }}
+          className="mt-2 text-xs text-slate-500 underline hover:text-slate-700"
+        >
+          Copy
+        </button>
       </div>
     );
   }

@@ -270,7 +270,7 @@ function computeCompare(parsedRows: ParsedCompareRow[]): BillingResult {
 
   for (const r of parsedRows) {
     const year = Number(r.dosIso.slice(0, 4));
-    const dateDisplay = isoToDisplay(r.dosIso);
+    const dateDisplay = r.rawDateDisplay || isoToDisplay(r.dosIso);
     const phys = findPhysicianRow(r.cpt, locality, year);
     const flags: FcsoFlag[] = [];
 
@@ -290,8 +290,9 @@ function computeCompare(parsedRows: ParsedCompareRow[]): BillingResult {
 
     compareRows.push({
       date: dateDisplay,
-      cptDisplay: formatCptDisplay(r.cpt, r.modifiers),
+      cptDisplay: r.rawCptDisplay || formatCptDisplay(r.cpt, r.modifiers),
       theirChargeRaw: r.theirCharge,
+      theirChargeDisplay: r.rawCharge,
       ocsfChargeRaw,
       flags,
     });

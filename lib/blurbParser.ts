@@ -350,6 +350,7 @@ export function detectCompareTable(text: string): ParsedCompareRow[] | null {
     if (!m) continue;
     const cpt = m[1].toUpperCase();
     const modSuffix = (m[2] || "").toUpperCase();
+    const rawCptDisplay = `${cpt}${modSuffix}`;
     const modifiers: Modifier[] = [];
     if (modSuffix) {
       for (const seg of modSuffix.split("-").filter(Boolean)) {
@@ -362,7 +363,15 @@ export function detectCompareTable(text: string): ParsedCompareRow[] | null {
     const dollar = /\$?\s*([\d,]+(?:\.\d+)?)/.exec(chargeCell);
     const theirCharge = dollar ? Number(dollar[1].replace(/,/g, "")) : 0;
 
-    rows.push({ dosIso, cpt, modifiers, theirCharge });
+    rows.push({
+      dosIso,
+      rawDateDisplay: dateCell,
+      cpt,
+      rawCptDisplay,
+      modifiers,
+      theirCharge,
+      rawCharge: chargeCell,
+    });
   }
 
   if (rows.length === 0 || !sawBlankOcsf) return null;
@@ -370,8 +379,15 @@ export function detectCompareTable(text: string): ParsedCompareRow[] | null {
 }
 
 function splitPipeRow(line: string): string[] {
-  // Strip leading/trailing pipes, then split on |.
-  return line.replace(/^\||\|$/g, "").split("|").map((c) => c.trim());
+  // Split on | first, then trim. Only drop boundary empties when BOTH ends
+  // are empty (markdown-style "| A | B |"). This preserves trailing empty
+  // cells in lines like "10/17/24 | 99214 | $295 |" where the last column
+  // is intentionally blank.
+  const cells = line.split("|").map((c) => c.trim());
+  if (cells.length >= 2 && cells[0] === "" && cells[cells.length - 1] === "") {
+    return cells.slice(1, -1);
+  }
+  return cells;
 }
 
 export function parseBlurb(

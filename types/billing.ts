@@ -48,9 +48,12 @@ export type ResultMode = "normal" | "compare";
 
 export interface ParsedCompareRow {
   dosIso: string; // "YYYY-MM-DD"
-  cpt: string;
+  rawDateDisplay: string; // original date string from input cell, e.g. "10/17/24"
+  cpt: string; // 5-char code used for fee lookup, e.g. "99214"
+  rawCptDisplay: string; // original token from input, e.g. "99214-25"
   modifiers: Modifier[];
   theirCharge: number; // dollars from input
+  rawCharge: string; // original charge cell text, preserved verbatim
 }
 
 export interface BlurbParseResult {
@@ -65,9 +68,10 @@ export interface BlurbParseResult {
 }
 
 export interface CompareRow {
-  date: string; // MM/DD/YYYY display
+  date: string; // display (may be from input verbatim or computed)
   cptDisplay: string;
-  theirChargeRaw: number;
+  theirChargeRaw: number; // numeric value for sums
+  theirChargeDisplay: string; // verbatim from input ("$295", "$1,750", etc.)
   ocsfChargeRaw: number;
   flags: FcsoFlag[];
 }
