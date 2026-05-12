@@ -308,6 +308,17 @@ function renderConflictFollowUp(conflicts: ConflictItem[]): string {
 // (their `theirCharge` flows through but `dosIso` parsing still happens so the
 // row renders consistently).
 export function detectCompareTable(text: string): ParsedCompareRow[] | null {
+  // Strategy A: each row on its own line (markdown-style or newline-separated).
+  const lineRows = detectCompareTableByLines(text);
+  if (lineRows) return lineRows;
+
+  // Strategy B: entire table on one line (user pasted from Word/email without
+  // preserving row breaks). Header is followed by repeating triples of
+  // [date, cpt, charge]; the empty OCSF cell is implicit.
+  return detectCompareTableSingleLine(text);
+}
+
+function detectCompareTableByLines(text: string): ParsedCompareRow[] | null {
   const lines = text
     .split(/\r?\n/)
     .map((l) => l.trim())
@@ -332,50 +343,108 @@ export function detectCompareTable(text: string): ParsedCompareRow[] | null {
   for (let i = headerIdx + 1; i < lines.length; i++) {
     const cells = splitPipeRow(lines[i]);
     if (cells.length !== 4) continue;
-    // Skip markdown separator rows like "|------|----|----|----|"
     if (cells.every((c) => /^[-:\s]+$/.test(c))) continue;
 
-    const dateCell = cells[0];
-    const cptCell = cells[1];
-    const chargeCell = cells[2];
-    const ocsfCell = cells[3];
-
-    if (ocsfCell.trim() === "") sawBlankOcsf = true;
-
-    const dosIso = extractDate(dateCell);
-    if (!dosIso) continue;
-
-    CPT_TOKEN_RE.lastIndex = 0;
-    const m = CPT_TOKEN_RE.exec(cptCell);
-    if (!m) continue;
-    const cpt = m[1].toUpperCase();
-    const modSuffix = (m[2] || "").toUpperCase();
-    const rawCptDisplay = `${cpt}${modSuffix}`;
-    const modifiers: Modifier[] = [];
-    if (modSuffix) {
-      for (const seg of modSuffix.split("-").filter(Boolean)) {
-        if (PAYMENT_MODS.has(seg) || SIDE_MODS.has(seg)) {
-          modifiers.push(seg as Modifier);
-        }
-      }
-    }
-
-    const dollar = /\$?\s*([\d,]+(?:\.\d+)?)/.exec(chargeCell);
-    const theirCharge = dollar ? Number(dollar[1].replace(/,/g, "")) : 0;
-
-    rows.push({
-      dosIso,
-      rawDateDisplay: dateCell,
-      cpt,
-      rawCptDisplay,
-      modifiers,
-      theirCharge,
-      rawCharge: chargeCell,
-    });
+    const row = parseCompareCells(cells[0], cells[1], cells[2]);
+    if (!row) continue;
+    if (cells[3].trim() === "") sawBlankOcsf = true;
+    rows.push(row);
   }
 
   if (rows.length === 0 || !sawBlankOcsf) return null;
   return rows;
+}
+
+function detectCompareTableSingleLine(
+  text: string,
+): ParsedCompareRow[] | null {
+  if (!/ocsf\s*charge/i.test(text)) return null;
+
+  // Flatten on pipes only; preserve every cell (including empties).
+  const allCells = text.split("|").map((c) => c.trim());
+
+  // Find the cell that contains "OCSF Charge" (possibly with the first data
+  // date glued on, e.g. "OCSF CHARGE 11/14/24").
+  let headerEndIdx = -1;
+  let firstDateInline = "";
+  for (let i = 0; i < allCells.length; i++) {
+    const m = /^ocsf\s*charge\s*(.*)$/i.exec(allCells[i]);
+    if (m) {
+      headerEndIdx = i;
+      firstDateInline = m[1].trim();
+      break;
+    }
+  }
+  if (headerEndIdx < 3) return null;
+
+  // Verify the 3 preceding cells look like a header (DATE / CPT / CHARGE).
+  const h0 = allCells[headerEndIdx - 3].toLowerCase();
+  const h1 = allCells[headerEndIdx - 2].toLowerCase();
+  const h2 = allCells[headerEndIdx - 1].toLowerCase();
+  if (!/date|dos/.test(h0)) return null;
+  if (!/cpt/.test(h1)) return null;
+  if (!/charge|fee|amount/.test(h2)) return null;
+
+  // Build data cells stream. If the OCSF-CHARGE cell trailed a date, that's
+  // the first data cell.
+  const dataCells: string[] = [];
+  if (firstDateInline) dataCells.push(firstDateInline);
+  for (let i = headerEndIdx + 1; i < allCells.length; i++) {
+    dataCells.push(allCells[i]);
+  }
+
+  // Walk groups of 3 (date, cpt, charge). The implicit OCSF cell isn't
+  // present because trailing pipes were absorbed into the next row's date.
+  const rows: ParsedCompareRow[] = [];
+  for (let i = 0; i + 2 < dataCells.length; i += 3) {
+    const row = parseCompareCells(
+      dataCells[i],
+      dataCells[i + 1],
+      dataCells[i + 2],
+    );
+    if (!row) continue;
+    rows.push(row);
+  }
+
+  if (rows.length === 0) return null;
+  return rows;
+}
+
+function parseCompareCells(
+  dateCell: string,
+  cptCell: string,
+  chargeCell: string,
+): ParsedCompareRow | null {
+  const dosIso = extractDate(dateCell);
+  if (!dosIso) return null;
+
+  CPT_TOKEN_RE.lastIndex = 0;
+  const m = CPT_TOKEN_RE.exec(cptCell);
+  if (!m) return null;
+  const cpt = m[1].toUpperCase();
+  const modSuffix = (m[2] || "").toUpperCase();
+  const rawCptDisplay = `${cpt}${modSuffix}`;
+  const modifiers: Modifier[] = [];
+  if (modSuffix) {
+    for (const seg of modSuffix.split("-").filter(Boolean)) {
+      if (PAYMENT_MODS.has(seg) || SIDE_MODS.has(seg)) {
+        modifiers.push(seg as Modifier);
+      }
+    }
+  }
+
+  const dollar = /\$?\s*([\d,]+(?:\.\d+)?)/.exec(chargeCell);
+  const theirCharge = dollar ? Number(dollar[1].replace(/,/g, "")) : 0;
+
+  return {
+    dosIso,
+    rawDateDisplay: dateCell,
+    cpt,
+    rawCptDisplay,
+    modifiers,
+    theirCharge,
+    rawCharge: chargeCell,
+  };
 }
 
 function splitPipeRow(line: string): string[] {
