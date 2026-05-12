@@ -315,6 +315,38 @@ export default function ChatThread({
       setPhase("error");
       return;
     }
+    // Validation: every input row must round-trip with date, CPT, and charge
+    // preserved verbatim and the row count must match. If anything drifted we
+    // refuse to show the table — that's the bug class the user has hit before.
+    const outRows = data.result.compare?.rows ?? [];
+    const mismatches: string[] = [];
+    if (outRows.length !== compareRows.length) {
+      mismatches.push(
+        `row count mismatch (input ${compareRows.length}, output ${outRows.length})`,
+      );
+    }
+    const n = Math.min(outRows.length, compareRows.length);
+    for (let i = 0; i < n; i++) {
+      const inp = compareRows[i];
+      const out = outRows[i];
+      if (out.date !== inp.rawDateDisplay) {
+        mismatches.push(`row ${i + 1}: date "${out.date}" ≠ input "${inp.rawDateDisplay}"`);
+      }
+      if (out.cptDisplay !== inp.rawCptDisplay) {
+        mismatches.push(`row ${i + 1}: CPT "${out.cptDisplay}" ≠ input "${inp.rawCptDisplay}"`);
+      }
+      if (out.theirChargeDisplay !== inp.rawCharge) {
+        mismatches.push(`row ${i + 1}: charge "${out.theirChargeDisplay}" ≠ input "${inp.rawCharge}"`);
+      }
+    }
+    if (mismatches.length > 0) {
+      appendAssistant(
+        `Internal validation failed — refusing to display table.\n• ${mismatches.slice(0, 5).join("\n• ")}`,
+      );
+      setPhase("error");
+      return;
+    }
+
     setResult(data.result);
     appendTables(data.result);
 
@@ -575,18 +607,7 @@ function TablesBlock({
   if (result.mode === "compare" && result.compare) {
     return (
       <div className="my-2">
-        <pre className="whitespace-pre font-sans text-sm leading-6">
-          {compareMd}
-        </pre>
-        <button
-          type="button"
-          onClick={() => {
-            navigator.clipboard?.writeText(compareMd);
-          }}
-          className="mt-2 text-xs text-slate-500 underline hover:text-slate-700"
-        >
-          Copy
-        </button>
+        <BillingTable title="Charges Comparison" markdown={compareMd} />
       </div>
     );
   }
