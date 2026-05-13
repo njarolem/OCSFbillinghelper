@@ -3,6 +3,7 @@
 
 import type {
   BlurbParseResult,
+  ChargeColumnKind,
   ConflictItem,
   CountyLabel,
   LineItem,
@@ -92,7 +93,10 @@ function pad(n: number, w = 2): string {
 function toIso(year: number, month: number, day: number): string | null {
   if (month < 1 || month > 12) return null;
   if (day < 1 || day > 31) return null;
-  if (!SUPPORTED_YEARS.includes(year)) return null;
+  // Accept any reasonable year here; the engine + API route gate on
+  // SUPPORTED_YEARS when actually looking up fees. Filtering at parse time
+  // silently drops out-of-range dates and corrupts multi-DOS inputs.
+  if (year < 2000 || year > 2099) return null;
   return `${year}-${pad(month)}-${pad(day)}`;
 }
 
@@ -315,7 +319,91 @@ export function detectCompareTable(text: string): ParsedCompareRow[] | null {
   // Strategy B: entire table on one line (user pasted from Word/email without
   // preserving row breaks). Header is followed by repeating triples of
   // [date, cpt, charge]; the empty OCSF cell is implicit.
-  return detectCompareTableSingleLine(text);
+  const singleLine = detectCompareTableSingleLine(text);
+  if (singleLine) return singleLine;
+
+  // Strategy C: column-major layout (one cell per line, no pipes). User pasted
+  // from a spreadsheet column-by-column. 4 header lines, then groups of 4 cells.
+  return detectFillinTemplateColumnMajor(text);
+}
+
+function detectFillinTemplateColumnMajor(
+  text: string,
+): ParsedCompareRow[] | null {
+  // If the text contains pipes, the other strategies own this input.
+  if (text.includes("|")) return null;
+  const lines = text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+  if (lines.length < 8) return null; // 4 headers + at least 1 row of 4
+
+  const h0 = lines[0];
+  const h1 = lines[1];
+  const h2 = lines[2];
+  const h3 = lines[3];
+  if (!/^(date|dos)$/i.test(h0)) return null;
+  if (!/^cpt(\s*code)?$/i.test(h1)) return null;
+  if (!/(charge|medicare|fee|amount)/i.test(h2)) return null;
+  if (!/^ocsf\s*charge$/i.test(h3)) return null;
+
+  const chargeColumnKind: ChargeColumnKind = /medicare/i.test(h2)
+    ? "medicare_120"
+    : "their_charge";
+
+  const isBlank = (cell: string) => cell === "" || /^\$+$/.test(cell);
+
+  const rows: ParsedCompareRow[] = [];
+  for (let i = 4; i + 3 < lines.length; i += 4) {
+    // Stop on a "Totals:" marker — anything after is footer noise.
+    if (/^totals?:?$/i.test(lines[i])) break;
+
+    const dateCell = lines[i];
+    const cptCell = lines[i + 1];
+    const col3Cell = lines[i + 2];
+    const col4Cell = lines[i + 3];
+
+    // OCSF column must be blank (or $ placeholder) on every row — this is
+    // what makes it a fill-in template rather than a finished table.
+    if (!isBlank(col4Cell)) return null;
+
+    const dosIso = extractDate(dateCell) ?? "";
+
+    CPT_TOKEN_RE.lastIndex = 0;
+    const m = CPT_TOKEN_RE.exec(cptCell);
+    if (!m) continue;
+    const cpt = m[1].toUpperCase();
+    const modSuffix = (m[2] || "").toUpperCase();
+    const rawCptDisplay = `${cpt}${modSuffix}`;
+    const modifiers: Modifier[] = [];
+    if (modSuffix) {
+      for (const seg of modSuffix.split("-").filter(Boolean)) {
+        if (PAYMENT_MODS.has(seg) || SIDE_MODS.has(seg)) {
+          modifiers.push(seg as Modifier);
+        }
+      }
+    }
+
+    let theirCharge = 0;
+    if (chargeColumnKind === "their_charge" && !isBlank(col3Cell)) {
+      const dollar = /\$?\s*([\d,]+(?:\.\d+)?)/.exec(col3Cell);
+      if (dollar) theirCharge = Number(dollar[1].replace(/,/g, ""));
+    }
+
+    rows.push({
+      dosIso,
+      rawDateDisplay: dateCell,
+      cpt,
+      rawCptDisplay,
+      modifiers,
+      theirCharge,
+      rawCharge: col3Cell,
+      chargeColumnKind,
+    });
+  }
+
+  if (rows.length === 0) return null;
+  return rows;
 }
 
 function detectCompareTableByLines(text: string): ParsedCompareRow[] | null {

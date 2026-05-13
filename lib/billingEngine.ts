@@ -269,23 +269,30 @@ function computeCompare(parsedRows: ParsedCompareRow[]): BillingResult {
   const locality = "03"; // OCSF fees are uniform across localities
 
   for (const r of parsedRows) {
-    const year = Number(r.dosIso.slice(0, 4));
+    const year = r.dosIso ? Number(r.dosIso.slice(0, 4)) : 0;
     const dateDisplay = r.rawDateDisplay || isoToDisplay(r.dosIso);
-    const phys = findPhysicianRow(r.cpt, locality, year);
+    const phys = year ? findPhysicianRow(r.cpt, locality, year) : null;
     const flags: FcsoFlag[] = [];
 
     let ocsfChargeRaw = 0;
+    let medicare120Raw: number | undefined;
     if (!phys) {
       flags.push({
         cpt: r.cpt,
-        reason:
-          "CPT not found in physician fee schedule for this year (OCSF lookup)",
+        reason: year
+          ? `CPT not found in physician fee schedule for ${year} at locality ${locality}`
+          : "Row has no parseable date — cannot look up fee schedule",
         locality,
         year,
         dosDisplay: dateDisplay,
       });
+      if (r.chargeColumnKind === "medicare_120") medicare120Raw = 0;
     } else {
       ocsfChargeRaw = phys.ocsfStandardFee * ocsfMultiplier(r.modifiers);
+      if (r.chargeColumnKind === "medicare_120") {
+        const { mult } = surgeonMultiplier(r.modifiers);
+        medicare120Raw = phys.nonFacLc * mult;
+      }
     }
 
     compareRows.push({
@@ -293,6 +300,7 @@ function computeCompare(parsedRows: ParsedCompareRow[]): BillingResult {
       cptDisplay: r.rawCptDisplay || formatCptDisplay(r.cpt, r.modifiers),
       theirChargeRaw: r.theirCharge,
       theirChargeDisplay: r.rawCharge,
+      ...(medicare120Raw !== undefined ? { medicare120Raw } : {}),
       ocsfChargeRaw,
       flags,
     });

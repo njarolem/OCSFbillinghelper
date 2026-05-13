@@ -152,14 +152,25 @@ export function renderCompareTable(result: BillingResult): string {
   if (!result.compare) return "";
   const rows = result.compare.rows;
 
-  const header = `| DATE | CPT CODE | CHARGE | OCSF CHARGE |\n| ---- | -------- | ------ | ----------- |`;
+  // If any row carries a computed Medicare value, column 3 is the
+  // "120% MEDICARE" column. Otherwise it preserves the user's CHARGE input.
+  const isMedicareCol = rows.some((r) => r.medicare120Raw !== undefined);
+  const col3Header = isMedicareCol ? "120% MEDICARE" : "CHARGE";
+  const col3Dash = isMedicareCol ? "-------------" : "------";
+
+  const header = `| DATE | CPT CODE | ${col3Header} | OCSF CHARGE |\n| ---- | -------- | ${col3Dash} | ----------- |`;
 
   const dataRows = rows.map((r) => {
-    const their =
-      r.theirChargeDisplay ||
-      (r.theirChargeRaw > 0 ? formatDollars(r.theirChargeRaw) : "");
+    let col3: string;
+    if (isMedicareCol) {
+      col3 = formatDollars(r.medicare120Raw ?? 0);
+    } else {
+      col3 =
+        r.theirChargeDisplay ||
+        (r.theirChargeRaw > 0 ? formatDollars(r.theirChargeRaw) : "");
+    }
     const ocsf = r.ocsfChargeRaw > 0 ? formatDollars(r.ocsfChargeRaw) : "$0";
-    return `| ${r.date} | ${r.cptDisplay} | ${their} | ${ocsf} |`;
+    return `| ${r.date} | ${r.cptDisplay} | ${col3} | ${ocsf} |`;
   });
 
   return [header, ...dataRows].join("\n");

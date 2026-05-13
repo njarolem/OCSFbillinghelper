@@ -46,14 +46,17 @@ export interface ConflictItem {
 
 export type ResultMode = "normal" | "compare";
 
+export type ChargeColumnKind = "their_charge" | "medicare_120";
+
 export interface ParsedCompareRow {
-  dosIso: string; // "YYYY-MM-DD"
+  dosIso: string; // "YYYY-MM-DD" (empty string if date couldn't be parsed)
   rawDateDisplay: string; // original date string from input cell, e.g. "10/17/24"
   cpt: string; // 5-char code used for fee lookup, e.g. "99214"
   rawCptDisplay: string; // original token from input, e.g. "99214-25"
   modifiers: Modifier[];
-  theirCharge: number; // dollars from input
+  theirCharge: number; // dollars from input (0 when column is fillable / blank)
   rawCharge: string; // original charge cell text, preserved verbatim
+  chargeColumnKind?: ChargeColumnKind; // "medicare_120" when column 3 header asks for Medicare
 }
 
 export interface BlurbParseResult {
@@ -72,6 +75,7 @@ export interface CompareRow {
   cptDisplay: string;
   theirChargeRaw: number; // numeric value for sums
   theirChargeDisplay: string; // verbatim from input ("$295", "$1,750", etc.)
+  medicare120Raw?: number; // populated when input column 3 asked for Medicare 120%
   ocsfChargeRaw: number;
   flags: FcsoFlag[];
 }
