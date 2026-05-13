@@ -269,6 +269,8 @@ function computeCompare(parsedRows: ParsedCompareRow[]): BillingResult {
   const locality = "03"; // OCSF fees are uniform across localities
 
   for (const r of parsedRows) {
+    // Each row uses ITS OWN date for the fee-schedule lookup — never a
+    // shared/global DOS. dosIso comes from extractDate on this row's date cell.
     const year = r.dosIso ? Number(r.dosIso.slice(0, 4)) : 0;
     const dateDisplay = r.rawDateDisplay || isoToDisplay(r.dosIso);
     const phys = year ? findPhysicianRow(r.cpt, locality, year) : null;
