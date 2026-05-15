@@ -147,7 +147,14 @@ export function extractCounty(text: string): CountyLabel | null {
 // Matches: optional CPT (5 chars: alnum + 4 digits + optional trailing letter),
 // followed by zero or more "-MOD" segments. Captures the full token; we re-parse
 // modifiers from the captured suffix to allow stacking like "27130-LT-AS".
-const CPT_TOKEN_RE = /\b([A-Z0-9]\d{4}[A-Z]?)((?:-[A-Z0-9]{1,3})*)\b/gi;
+// Matches CPT-shaped tokens followed by optional "-MOD" segments.
+// Two alternatives in the head:
+//   • [A-Z0-9]\d{4}[A-Z]?  — Cat I (27447), HCPCS Level II (J1100, A4550, L4350),
+//                            G-codes (G0168), and the rare 5-digit + trailing letter.
+//   • \d{4}[TF]            — Cat III emerging-tech codes ending in T (0232T,
+//                            0707T) and Cat II measurement codes ending in F.
+const CPT_TOKEN_RE =
+  /\b([A-Z0-9]\d{4}[A-Z]?|\d{4}[TF])((?:-[A-Z0-9]{1,3})*)\b/gi;
 
 // Finds all {index, iso} date anchors in the text so CPT codes can be tagged
 // with the date that immediately precedes them.
