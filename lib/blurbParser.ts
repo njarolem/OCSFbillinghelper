@@ -554,16 +554,31 @@ function splitPipeRow(line: string): string[] {
   return cells;
 }
 
+const COUNTY_QUESTION =
+  "Which Florida county was the surgery performed in? (Miami-Dade, Broward, Palm Beach, or Other Florida)";
+
 export function parseBlurb(
   text: string,
-  opts: { skipLocalityCheck?: boolean } = {},
+  opts: { skipLocalityCheck?: boolean; confirmedLocality?: boolean } = {},
 ): BlurbParseResult {
   // Compare-table mode short-circuits the normal flow.
   const compareRows = detectCompareTable(text);
   if (compareRows) {
+    // Always confirm locality with the user before computing — even if a
+    // county/city is detectable in the pasted document.
+    if (!opts.confirmedLocality) {
+      return {
+        dos: null,
+        county: null,
+        lineItems: [],
+        followUp: COUNTY_QUESTION,
+        mode: "compare",
+        compareRows,
+      };
+    }
     return {
       dos: null,
-      county: null,
+      county: extractCounty(text),
       lineItems: [],
       followUp: null,
       mode: "compare",
@@ -583,9 +598,14 @@ export function parseBlurb(
   } else if (!dos) {
     followUp =
       "What was the date of service? (Please include MM/DD/YYYY — supported range is 2022–2026.)";
+  } else if (!opts.confirmedLocality) {
+    // Always confirm locality with the user on the first parse, even if
+    // extractCounty found something in the text. The user explicitly asked
+    // for this safety check so an unrecognized-but-misleading city name
+    // can't silently pick the wrong locality.
+    followUp = COUNTY_QUESTION;
   } else if (!county) {
-    followUp =
-      "Which Florida county was the surgery performed in? (Miami-Dade, Broward, Palm Beach, or Other Florida)";
+    followUp = COUNTY_QUESTION;
   } else if (conflicts.length > 0) {
     followUp = renderConflictFollowUp(conflicts);
   } else if (county === "Other" && !opts.skipLocalityCheck) {

@@ -291,7 +291,7 @@ export default function ChatThread({
     }
 
     if (parsed.mode === "compare" && parsed.compareRows) {
-      await runComputeCompare(parsed.compareRows);
+      await runComputeCompare(parsed.compareRows, parsed.county);
       return;
     }
 
@@ -300,12 +300,15 @@ export default function ChatThread({
     }
   }
 
-  async function runComputeCompare(compareRows: ParsedCompareRow[]) {
+  async function runComputeCompare(
+    compareRows: ParsedCompareRow[],
+    county: CountyLabel | null,
+  ) {
     setPhase("computing");
     const res = await fetch("/api/compute", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ mode: "compare", compareRows }),
+      body: JSON.stringify({ mode: "compare", compareRows, county }),
     });
     const data = (await res.json()) as
       | { ok: true; result: BillingResult }
@@ -374,7 +377,12 @@ export default function ChatThread({
     setConversationText(merged);
 
     const isOtherConfirm = pendingFollowUp?.includes("Other Florida") ?? false;
-    const parsed = parseBlurb(merged, { skipLocalityCheck: isOtherConfirm });
+    // Anything the user has answered counts as a confirmed locality on the
+    // re-parse — that's how we exit the "always ask first" loop in parseBlurb.
+    const parsed = parseBlurb(merged, {
+      skipLocalityCheck: isOtherConfirm,
+      confirmedLocality: true,
+    });
     if (parsed.dos && !isDateInRange(parsed.dos)) {
       appendAssistant(
         `Date of service ${isoToDisplay(parsed.dos)} is outside the supported range (2022–2026).`,
@@ -387,6 +395,12 @@ export default function ChatThread({
       setPendingFollowUp(parsed.followUp);
       setPendingConflicts(parsed.conflicts ?? []);
       setPhase("awaiting-followup");
+      return;
+    }
+    if (parsed.mode === "compare" && parsed.compareRows) {
+      setPendingFollowUp(null);
+      setPendingConflicts([]);
+      await runComputeCompare(parsed.compareRows, parsed.county);
       return;
     }
     if (parsed.dos && parsed.county && parsed.lineItems.length > 0) {
@@ -607,6 +621,9 @@ function TablesBlock({
   if (result.mode === "compare" && result.compare) {
     return (
       <div className="my-2">
+        <div className="text-xs text-slate-500 mb-1">
+          Resolved as {result.county} (locality {result.locality}).
+        </div>
         <BillingTable title="Charges Comparison" markdown={compareMd} />
       </div>
     );

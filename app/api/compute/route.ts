@@ -35,7 +35,11 @@ export async function POST(req: NextRequest) {
         { status: 400 },
       );
     }
-    const result = compute(body);
+    // Forward the user-confirmed county (may be null → engine defaults to "Other").
+    const result = compute({
+      ...body,
+      county: body.county ?? "Other",
+    });
     return NextResponse.json({ ok: true, result });
   }
 

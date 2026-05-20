@@ -63,7 +63,7 @@ export interface ComputeInput {
 
 export function compute(input: ComputeInput): BillingResult {
   if (input.mode === "compare" && input.compareRows) {
-    return computeCompare(input.compareRows);
+    return computeCompare(input.compareRows, input.county ?? "Other");
   }
   const { dosIso, county, lineItems, doctorName } = input;
   const year = Number(dosIso.slice(0, 4));
@@ -261,12 +261,15 @@ export function compute(input: ComputeInput): BillingResult {
   };
 }
 
-// Compare-mode compute: only fills the OCSF Charge column. OCSF fees are
-// locality-independent in the CSV so we always look up at locality "03".
-function computeCompare(parsedRows: ParsedCompareRow[]): BillingResult {
+// Compare-mode compute. OCSF fees are locality-independent in the CSV, but
+// Medicare 120% depends on locality — so we use the county the user confirmed.
+function computeCompare(
+  parsedRows: ParsedCompareRow[],
+  county: CountyLabel,
+): BillingResult {
   const compareRows: CompareRow[] = [];
   const allFlags: FcsoFlag[] = [];
-  const locality = "03"; // OCSF fees are uniform across localities
+  const locality = countyToLocality(county);
 
   for (const r of parsedRows) {
     // Each row uses ITS OWN date for the fee-schedule lookup — never a
@@ -324,9 +327,9 @@ function computeCompare(parsedRows: ParsedCompareRow[]): BillingResult {
   return {
     dosDisplay,
     year,
-    county: "Other",
+    county,
     locality,
-    ascCounty: "AllOtherFL",
+    ascCounty: countyToAscCounty(county),
     surgeon: { rows: [], totalMedicare120: 0, totalOcsfCharge: 0 },
     asc: { rows: [], totalMedicare120: 0 },
     otherDoctors: {
