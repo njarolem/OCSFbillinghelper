@@ -49,7 +49,6 @@ function loadPhysician(): PhysicianIndex {
       locality,
       year,
       nonFacLc: Number(r.NON_FAC_LC) || 0,
-      phys120Pct: Number(r.PHYS_120PCT) || 0,
       ocsfStandardFee: Number(r.OCSF_STANDARD_FEE) || 0,
     };
     byKey.set(`${cpt}|${locality}|${year}`, row);

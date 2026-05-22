@@ -11,7 +11,6 @@ export interface PhysicianRow {
   locality: Locality;
   year: number;
   nonFacLc: number;
-  phys120Pct: number; // reference only — never used in math
   ocsfStandardFee: number;
 }
 

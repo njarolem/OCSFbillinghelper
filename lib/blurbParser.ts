@@ -63,7 +63,9 @@ const COUNTY_PHRASES: Array<[RegExp, CountyLabel]> = [
   [/\bpalm\s*beach\b/i, "Palm Beach"],
   [/\bpalm\s*bch\b/i, "Palm Beach"],
   [/\bpbc\b/i, "Palm Beach"],
-  // "Other Florida" / "Other FL" — checked last so named counties take priority.
+  // "rest of Florida" / "Other Florida" / "Other FL" — checked last so named
+  // counties take priority.
+  [/\brest\s+of\s+(?:florida|fl)\b/i, "Other"],
   [/\bother\s+(?:florida|fl)\b/i, "Other"],
   [/\b(?:other|99)\b/i, "Other"],
 ];
@@ -334,21 +336,31 @@ export function detectCompareTable(text: string): ParsedCompareRow[] | null {
   return detectFillinTemplateColumnMajor(text);
 }
 
+// Loose date-shape check used to anchor rows in a column-major template.
+// Empty cells collapse when blank lines are filtered out, so fixed
+// groups-of-4 is unreliable — instead, every date line starts a new row.
+function looksLikeDate(line: string): boolean {
+  return /\b\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}\b/.test(line) ||
+    /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2}/i.test(
+      line,
+    );
+}
+
 function detectFillinTemplateColumnMajor(
   text: string,
 ): ParsedCompareRow[] | null {
   // If the text contains pipes, the other strategies own this input.
   if (text.includes("|")) return null;
+  // Drop blank lines for header detection and row walking. The user's blank
+  // OCSF/Medicare cells become empty lines that vary in count — so we never
+  // rely on cell position, only on date lines as row anchors.
   const lines = text
     .split(/\r?\n/)
     .map((l) => l.trim())
     .filter((l) => l.length > 0);
-  if (lines.length < 8) return null; // 4 headers + at least 1 row of 4
+  if (lines.length < 6) return null; // 4 headers + at least date + cpt
 
-  const h0 = lines[0];
-  const h1 = lines[1];
-  const h2 = lines[2];
-  const h3 = lines[3];
+  const [h0, h1, h2, h3] = lines;
   if (!/^(date|dos)$/i.test(h0)) return null;
   if (!/^cpt(\s*code)?$/i.test(h1)) return null;
   if (!/(charge|medicare|fee|amount)/i.test(h2)) return null;
@@ -358,23 +370,39 @@ function detectFillinTemplateColumnMajor(
     ? "medicare_120"
     : "their_charge";
 
-  const isBlank = (cell: string) => cell === "" || /^\$+$/.test(cell);
-
-  const rows: ParsedCompareRow[] = [];
-  for (let i = 4; i + 3 < lines.length; i += 4) {
-    // Stop on a "Totals:" marker — anything after is footer noise.
+  // Data lines after the 4 headers, stopping at a "Totals" marker.
+  const data: string[] = [];
+  for (let i = 4; i < lines.length; i++) {
     if (/^totals?:?$/i.test(lines[i])) break;
+    data.push(lines[i]);
+  }
 
-    const dateCell = lines[i];
-    const cptCell = lines[i + 1];
-    const col3Cell = lines[i + 2];
-    const col4Cell = lines[i + 3];
+  // Date-anchored walk: a date line starts a row, the next line is the CPT,
+  // and any dollar-looking line before the next date is the charge value.
+  const rows: ParsedCompareRow[] = [];
+  let i = 0;
+  while (i < data.length) {
+    if (!looksLikeDate(data[i])) {
+      i++;
+      continue;
+    }
+    const dateCell = data[i];
+    i++;
+    if (i >= data.length) break;
+    const cptCell = data[i];
+    i++;
 
-    // OCSF column must be blank (or $ placeholder) on every row — this is
-    // what makes it a fill-in template rather than a finished table.
-    if (!isBlank(col4Cell)) return null;
-
-    const dosIso = extractDate(dateCell) ?? "";
+    let chargeCell = "";
+    while (i < data.length && !looksLikeDate(data[i])) {
+      if (
+        chargeColumnKind === "their_charge" &&
+        chargeCell === "" &&
+        /\d/.test(data[i])
+      ) {
+        chargeCell = data[i];
+      }
+      i++;
+    }
 
     CPT_TOKEN_RE.lastIndex = 0;
     const m = CPT_TOKEN_RE.exec(cptCell);
@@ -392,19 +420,19 @@ function detectFillinTemplateColumnMajor(
     }
 
     let theirCharge = 0;
-    if (chargeColumnKind === "their_charge" && !isBlank(col3Cell)) {
-      const dollar = /\$?\s*([\d,]+(?:\.\d+)?)/.exec(col3Cell);
+    if (chargeColumnKind === "their_charge" && chargeCell) {
+      const dollar = /\$?\s*([\d,]+(?:\.\d+)?)/.exec(chargeCell);
       if (dollar) theirCharge = Number(dollar[1].replace(/,/g, ""));
     }
 
     rows.push({
-      dosIso,
+      dosIso: extractDate(dateCell) ?? "",
       rawDateDisplay: dateCell,
       cpt,
       rawCptDisplay,
       modifiers,
       theirCharge,
-      rawCharge: col3Cell,
+      rawCharge: chargeCell,
       chargeColumnKind,
     });
   }
@@ -555,7 +583,7 @@ function splitPipeRow(line: string): string[] {
 }
 
 const COUNTY_QUESTION =
-  "Which Florida county was the surgery performed in? (Miami-Dade, Broward, Palm Beach, or Other Florida)";
+  "Which Florida locality was the surgery performed in? (Miami-Dade, Broward County, Palm Beach, or rest of Florida)";
 
 export function parseBlurb(
   text: string,
@@ -610,7 +638,7 @@ export function parseBlurb(
     followUp = renderConflictFollowUp(conflicts);
   } else if (county === "Other" && !opts.skipLocalityCheck) {
     followUp =
-      "I resolved the location to Other Florida (locality 99). Please confirm — is the surgery county Miami-Dade, Broward, or Palm Beach? If it's another Florida county, reply \"Other\" to continue.";
+      "I resolved the location to rest of Florida (locality 99). Please confirm — is the surgery county Miami-Dade, Broward, or Palm Beach? If it's another Florida county, reply \"rest of Florida\" to continue.";
   }
 
   const hasOtherSection = lineItems.some((li) => li.section === "other");

@@ -134,7 +134,6 @@ Do not conflate `dev-sessions.md` (developer audit trail) with `sessions/`
 
 - `NON_FAC_LC` is the **only** base for surgeon fees, **including procedures performed in an ASC**.
 - `FAC LC` must never be used for the surgeon 120% Medicare column.
-- `PHYS_120PCT` is reference-only — never used in math.
 - Round only at the end. Display whole dollars only.
 - Each new case = fresh chat thread (the "+ New Case" button resets state).
 - Modifiers never apply to ASC rates.

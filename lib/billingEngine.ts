@@ -5,7 +5,6 @@
 //
 // Hard rules enforced here:
 //   - NON_FAC_LC is the ONLY base for surgeon 120% Medicare math.
-//   - PHYS_120PCT is never used.
 //   - Round only at the final display step. Totals sum unrounded line values
 //     and round once.
 //   - Modifiers never apply to ASC rates.

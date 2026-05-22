@@ -31,10 +31,13 @@ npm test
 ## Updating the CSVs
 
 Drop new versions of the two files into `data/`:
-- `data/master_physician_ocsf.csv`
-- `data/master_asc.csv`
+- `data/master_physician_ocsf.csv` — columns: `CPT, LOCALITY, YEAR, NON_FAC_LC, OCSF_STANDARD_FEE`
+- `data/master_asc.csv` — columns: `CPT, LOCALITY, YEAR, COUNTY, ASC_BASE_AMOUNT, ASC_120PCT`
 
-Required columns are unchanged from the original schema. Restart `npm run dev`
+The loader reads columns by header name, so column order is flexible, but the
+header names above must match exactly. The legacy `PHYS_120PCT` column has been
+removed — do **not** reintroduce it in upstream exports; it was inconsistently
+sourced reference data that no compute path used. Restart `npm run dev`
 (or redeploy) — the loader caches the parsed rows once per process, so a new
 deploy is the cleanest way to refresh.
 
