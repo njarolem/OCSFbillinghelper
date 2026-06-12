@@ -94,12 +94,21 @@ function mdTableToHtmlAndText(md: string, intro?: string): { html: string; text:
 
   const [header, ...body] = dataRows;
 
+  // Word renders <td>raw text</td> as an empty cell in some versions —
+  // wrapping content in <p style="margin:0"> forces it to recognize the
+  // text as proper block content. We also use &nbsp; for empty cells so
+  // the cell doesn't collapse to zero width.
+  const cellContent = (c: string) => {
+    if (c === "") return "&nbsp;";
+    return `<p style="margin:0;">${escapeHtml(c)}</p>`;
+  };
+
   const thead =
     "<thead><tr>" +
     header
       .map(
         (c) =>
-          `<th style="border:1px solid #000;padding:4px 8px;text-align:left;font-weight:600;">${escapeHtml(c)}</th>`,
+          `<th style="border:1px solid #000;padding:4px 8px;text-align:left;font-weight:600;">${cellContent(c)}</th>`,
       )
       .join("") +
     "</tr></thead>";
@@ -112,7 +121,7 @@ function mdTableToHtmlAndText(md: string, intro?: string): { html: string; text:
         const cells = r
           .map((c) => {
             const style = `border:1px solid #000;padding:4px 8px;${isTotals ? "font-weight:600;" : ""}`;
-            return `<td style="${style}">${escapeHtml(c)}</td>`;
+            return `<td style="${style}">${cellContent(c)}</td>`;
           })
           .join("");
         return `<tr>${cells}</tr>`;
@@ -126,7 +135,12 @@ function mdTableToHtmlAndText(md: string, intro?: string): { html: string; text:
   const introHtml = intro
     ? `<p style="font-family:Calibri,Arial,sans-serif;font-size:11pt;margin:0 0 8pt 0;">${escapeHtml(intro)}</p>`
     : "";
-  const html = introHtml + tableHtml;
+
+  // Wrap in a full HTML document with charset so Word's clipboard handler
+  // accepts the body. Fragment-only HTML is sometimes rendered as a bare
+  // table grid with empty cells.
+  const html =
+    `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>${introHtml}${tableHtml}</body></html>`;
 
   const tableText = dataRows.map((r) => r.join("\t")).join("\n");
   const text = intro ? `${intro}\n\n${tableText}` : tableText;
