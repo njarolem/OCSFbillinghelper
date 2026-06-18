@@ -49,14 +49,18 @@ function parseRawCells(line: string): string[] {
 }
 
 function cellHtml(rawCell: string, tag: "th" | "td", extraStyle = ""): string {
+  // background-color:white and color:#000 must be explicit — Word on Windows
+  // applies its own gray shading and may use a light theme color when absent.
   const base =
-    "border:1px solid #000;padding:4px 8px;" +
-    (tag === "th" ? "font-weight:600;background:#f0f0f0;" : "") +
+    "border:1px solid #000;padding:4px 8px;background-color:white;color:#000;" +
+    (tag === "th" ? "font-weight:600;" : "") +
     extraStyle;
   const clean = cleanCell(rawCell);
+  // margin:0 on <p> prevents Word from rendering extra blank space above/below
+  // the text, which can make cells appear visually empty.
   const inner = isBold(rawCell)
-    ? `<p><strong>${escapeHtml(clean)}</strong></p>`
-    : `<p>${escapeHtml(clean)}</p>`;
+    ? `<p style="margin:0;"><strong>${escapeHtml(clean)}</strong></p>`
+    : `<p style="margin:0;">${escapeHtml(clean)}</p>`;
   return `<${tag} style="${base}">${inner}</${tag}>`;
 }
 
@@ -65,7 +69,8 @@ function cellHtml(rawCell: string, tag: "th" | "td", extraStyle = ""): string {
  * Key requirements satisfied:
  *  - xmlns namespace declarations activate Word's full HTML import filter
  *  - border/cellspacing/cellpadding HTML attributes (Word reads attributes, not just CSS)
- *  - Every cell contains <p>text</p> — Word discards bare text nodes in cells
+ *  - Every cell contains <p style="margin:0;">text</p> — Word discards bare text nodes
+ *  - background-color:white + color:#000 override Word's default gray shading
  *  - Bold totals rows use <strong> inside the <p>
  */
 export function buildWordHtml(md: string, intro?: string): string {
@@ -103,7 +108,7 @@ export function buildWordHtml(md: string, intro?: string): string {
 
   const tableHtml =
     `<table border="1" cellspacing="0" cellpadding="0" ` +
-    `style="border-collapse:collapse;font-family:Calibri,Arial,sans-serif;font-size:11pt;">` +
+    `style="border-collapse:collapse;font-family:Calibri,Arial,sans-serif;font-size:11pt;background-color:white;">` +
     thead +
     tbody +
     `</table>`;

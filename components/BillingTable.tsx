@@ -20,21 +20,22 @@ export default function BillingTable({ title, markdown, footnote, intro }: Props
 
   async function copy() {
     try {
-      // Primary: execCommand with a fully-rendered DOM table.
-      // Each cell gets a <p> child — Word requires paragraph containers
-      // inside cells; a bare text node is silently discarded on Windows.
-      // opacity:0 keeps the element in the render tree so the browser
-      // fully lays it out before execCommand serialises it to CF_HTML.
-      const domOk = copyViaDOM(markdown, intro);
-      if (domOk) {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1500);
-        return;
-      }
-
-      // Fallback: ClipboardItem with explicit Word-compatible HTML.
+      // Strategy 1 (PRIMARY): ClipboardItem with Office-namespace HTML.
+      //
+      // This is the correct W3C path. The browser converts the text/html blob
+      // to CF_HTML (Windows) or an HTML pasteboard entry (Mac) automatically.
+      // buildWordHtml() includes xmlns:w/xmlns:o which activates Word's full
+      // HTML import filter, background-color:white so Word doesn't apply its
+      // default gray shading, and <p style="margin:0"> in every cell so Word
+      // renders cell text rather than an empty-looking paragraph.
+      //
+      // On Windows Chrome/Edge this MUST be the first attempt. The execCommand
+      // fallback returns true even when Chromium omits off-screen text from
+      // CF_HTML serialisation, producing blank cells — so if execCommand runs
+      // first we never reach this path and pasting gives an empty table.
       const html = buildWordHtml(markdown, intro);
       const text = buildPlainText(markdown, intro);
+
       if (html && typeof ClipboardItem !== "undefined" && navigator.clipboard?.write) {
         await navigator.clipboard.write([
           new ClipboardItem({
@@ -42,9 +43,26 @@ export default function BillingTable({ title, markdown, footnote, intro }: Props
             "text/plain": new Blob([text], { type: "text/plain" }),
           }),
         ]);
-      } else {
-        await navigator.clipboard.writeText(text);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+        return;
       }
+
+      // Strategy 2 (FALLBACK): DOM-based execCommand copy.
+      //
+      // Used only when ClipboardItem is unavailable (older browsers / Firefox
+      // without async clipboard permission).  The container is clipped to a
+      // 1×1 pixel with overflow:hidden so it is invisible but still fully
+      // painted — avoiding the Chromium left:-9999px text-omission bug.
+      const domOk = copyViaDOM(markdown, intro);
+      if (domOk) {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+        return;
+      }
+
+      // Strategy 3: plain text last resort.
+      await navigator.clipboard.writeText(text);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
@@ -93,9 +111,14 @@ function copyViaDOM(md: string, intro?: string): boolean {
 
   const [headerRow, ...bodyRows] = nonSepRows;
 
+  // Position at top-left of the viewport but clip to 1×1 px.
+  // This keeps the element fully painted (so execCommand serialises all text)
+  // while remaining invisible to the user.  Using left:-9999px instead causes
+  // Chromium on Windows to omit off-screen text nodes from CF_HTML, producing
+  // an empty table when pasted into Word.
   const container = document.createElement("div");
   container.style.cssText =
-    "position:fixed;top:0;left:-9999px;pointer-events:none;";
+    "position:fixed;top:0;left:0;width:1px;height:1px;overflow:hidden;pointer-events:none;";
 
   if (intro) {
     const p = document.createElement("p");
@@ -110,7 +133,7 @@ function copyViaDOM(md: string, intro?: string): boolean {
   table.setAttribute("cellspacing", "0");
   table.setAttribute("cellpadding", "0");
   table.style.cssText =
-    "border-collapse:collapse;font-family:Calibri,Arial,sans-serif;font-size:11pt;";
+    "border-collapse:collapse;font-family:Calibri,Arial,sans-serif;font-size:11pt;background-color:white;";
 
   const thead = document.createElement("thead");
   const headerTr = document.createElement("tr");
