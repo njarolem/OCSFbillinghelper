@@ -19,21 +19,11 @@ export default function BillingTable({ title, markdown, footnote, intro }: Props
 
   async function copy() {
     try {
-      const { html, text } = mdTableToHtmlAndText(markdown, intro);
-      if (
-        typeof ClipboardItem !== "undefined" &&
-        navigator.clipboard?.write
-      ) {
-        const item = new ClipboardItem({
-          "text/html": new Blob([html], { type: "text/html" }),
-          "text/plain": new Blob([text], { type: "text/plain" }),
-        });
-        await navigator.clipboard.write([item]);
-      } else {
-        await navigator.clipboard.writeText(text);
+      const ok = copyViaDOM(markdown, intro);
+      if (ok) {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
       }
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
     } catch {
       // ignore
     }
@@ -69,81 +59,80 @@ function cleanCell(s: string): string {
   return s.trim().replace(/^\*\*(.*)\*\*$/s, "$1").trim();
 }
 
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
-
-// Converts our generated markdown tables into a real HTML <table> (so Word
-// pastes them as an actual table) and a tab-delimited plain-text fallback.
-function mdTableToHtmlAndText(md: string, intro?: string): { html: string; text: string } {
+// Builds a real DOM table and copies it via execCommand so the browser
+// generates proper CF_HTML format that Word on Windows reliably pastes
+// with all cell content intact.
+function copyViaDOM(md: string, intro?: string): boolean {
   const lines = md.split("\n").filter((l) => l.trim().startsWith("|"));
-  const rows = lines.map((l) =>
-    l
-      .replace(/^\s*\|/, "")
-      .replace(/\|\s*$/, "")
-      .split("|")
-      .map(cleanCell),
-  );
+  const rows = lines
+    .map((l) =>
+      l
+        .replace(/^\s*\|/, "")
+        .replace(/\|\s*$/, "")
+        .split("|")
+        .map(cleanCell),
+    )
+    .filter((r) => !r.every((c) => /^-+$/.test(c) || c === ""));
 
-  // Drop the markdown separator row (---|---).
-  const dataRows = rows.filter((r) => !r.every((c) => /^-+$/.test(c) || c === ""));
-  if (dataRows.length === 0) return { html: "", text: md };
+  if (rows.length === 0) return false;
 
-  const [header, ...body] = dataRows;
+  const [header, ...body] = rows;
 
-  // Word renders <td>raw text</td> as an empty cell in some versions —
-  // wrapping content in <p style="margin:0"> forces it to recognize the
-  // text as proper block content. We also use &nbsp; for empty cells so
-  // the cell doesn't collapse to zero width.
-  const cellContent = (c: string) => {
-    if (c === "") return "&nbsp;";
-    return `<p style="margin:0;">${escapeHtml(c)}</p>`;
-  };
+  // Render off-screen so selection doesn't flash.
+  const container = document.createElement("div");
+  container.style.cssText = "position:fixed;left:-9999px;top:0;";
 
-  const thead =
-    "<thead><tr>" +
-    header
-      .map(
-        (c) =>
-          `<th style="border:1px solid #000;padding:4px 8px;text-align:left;font-weight:600;">${cellContent(c)}</th>`,
-      )
-      .join("") +
-    "</tr></thead>";
+  if (intro) {
+    const p = document.createElement("p");
+    p.style.cssText =
+      "font-family:Calibri,Arial,sans-serif;font-size:11pt;margin:0 0 8pt 0;";
+    p.textContent = intro;
+    container.appendChild(p);
+  }
 
-  const tbody =
-    "<tbody>" +
-    body
-      .map((r) => {
-        const isTotals = r[0]?.toUpperCase() === "TOTALS";
-        const cells = r
-          .map((c) => {
-            const style = `border:1px solid #000;padding:4px 8px;${isTotals ? "font-weight:600;" : ""}`;
-            return `<td style="${style}">${cellContent(c)}</td>`;
-          })
-          .join("");
-        return `<tr>${cells}</tr>`;
-      })
-      .join("") +
-    "</tbody>";
+  const table = document.createElement("table");
+  table.style.cssText =
+    "border-collapse:collapse;font-family:Calibri,Arial,sans-serif;font-size:11pt;";
 
-  const tableHtml =
-    `<table style="border-collapse:collapse;border:1px solid #000;font-family:Calibri,Arial,sans-serif;font-size:11pt;">${thead}${tbody}</table>`;
+  const thead = document.createElement("thead");
+  const headerRow = document.createElement("tr");
+  for (const cell of header) {
+    const th = document.createElement("th");
+    th.style.cssText =
+      "border:1px solid #000;padding:4px 8px;text-align:left;font-weight:600;";
+    th.textContent = cell;
+    headerRow.appendChild(th);
+  }
+  thead.appendChild(headerRow);
+  table.appendChild(thead);
 
-  const introHtml = intro
-    ? `<p style="font-family:Calibri,Arial,sans-serif;font-size:11pt;margin:0 0 8pt 0;">${escapeHtml(intro)}</p>`
-    : "";
+  const tbody = document.createElement("tbody");
+  for (const row of body) {
+    const isTotals = row[0]?.toUpperCase() === "TOTALS";
+    const tr = document.createElement("tr");
+    for (const cell of row) {
+      const td = document.createElement("td");
+      td.style.cssText = `border:1px solid #000;padding:4px 8px;${isTotals ? "font-weight:600;" : ""}`;
+      td.textContent = cell;
+      tr.appendChild(td);
+    }
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  container.appendChild(table);
 
-  // Wrap in a full HTML document with charset so Word's clipboard handler
-  // accepts the body. Fragment-only HTML is sometimes rendered as a bare
-  // table grid with empty cells.
-  const html =
-    `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>${introHtml}${tableHtml}</body></html>`;
+  document.body.appendChild(container);
 
-  const tableText = dataRows.map((r) => r.join("\t")).join("\n");
-  const text = intro ? `${intro}\n\n${tableText}` : tableText;
+  const selection = window.getSelection();
+  const range = document.createRange();
+  range.selectNodeContents(container);
+  selection?.removeAllRanges();
+  selection?.addRange(range);
 
-  return { html, text };
+  const result = document.execCommand("copy");
+
+  selection?.removeAllRanges();
+  document.body.removeChild(container);
+
+  return result;
 }
