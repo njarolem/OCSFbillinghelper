@@ -3,7 +3,7 @@
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { cleanCell, buildWordHtml, buildPlainText } from "@/lib/wordClipboard";
+import { buildWordHtml, buildPlainText } from "@/lib/wordClipboard";
 
 interface Props {
   title: string;
@@ -19,23 +19,33 @@ export default function BillingTable({ title, markdown, footnote, intro }: Props
   const [copied, setCopied] = useState(false);
 
   async function copy() {
-    try {
-      // Strategy 1 (PRIMARY): ClipboardItem with Office-namespace HTML.
-      //
-      // This is the correct W3C path. The browser converts the text/html blob
-      // to CF_HTML (Windows) or an HTML pasteboard entry (Mac) automatically.
-      // buildWordHtml() includes xmlns:w/xmlns:o which activates Word's full
-      // HTML import filter, background-color:white so Word doesn't apply its
-      // default gray shading, and <p style="margin:0"> in every cell so Word
-      // renders cell text rather than an empty-looking paragraph.
-      //
-      // On Windows Chrome/Edge this MUST be the first attempt. The execCommand
-      // fallback returns true even when Chromium omits off-screen text from
-      // CF_HTML serialisation, producing blank cells — so if execCommand runs
-      // first we never reach this path and pasting gives an empty table.
-      const html = buildWordHtml(markdown, intro);
-      const text = buildPlainText(markdown, intro);
+    const html = buildWordHtml(markdown, intro);
+    const text = buildPlainText(markdown, intro);
 
+    // Strategy 1 (PRIMARY): execCommand("copy") from a visibility:hidden element.
+    //
+    // Why primary: Chrome on Windows has a regression in navigator.clipboard.write()
+    // where text/html content loses cell text during the HTML→CF_HTML→HTML round-trip
+    // (cells arrive with correct structure but empty content in Word Online).
+    // execCommand("copy") bypasses that path — the browser serialises the live DOM
+    // directly to CF_HTML, which preserves all text nodes.
+    //
+    // Why visibility:hidden (not left:-9999px or opacity:0):
+    // - left:-9999px: Chromium paint-clips off-screen elements, stripping text from CF_HTML
+    // - opacity:0: same issue on some Windows builds
+    // - visibility:hidden at top:0/left:0: element is in the layout tree and fully
+    //   rendered at the correct position; only the paint output is suppressed.
+    //   The DOM serialiser used by execCommand sees all text nodes.
+    const domOk = copyViaDOM(html);
+    if (domOk) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+      return;
+    }
+
+    // Strategy 2 (FALLBACK): ClipboardItem with text/html.
+    // Used when execCommand is unavailable or blocked (some Firefox configs).
+    try {
       if (html && typeof ClipboardItem !== "undefined" && navigator.clipboard?.write) {
         await navigator.clipboard.write([
           new ClipboardItem({
@@ -47,21 +57,12 @@ export default function BillingTable({ title, markdown, footnote, intro }: Props
         setTimeout(() => setCopied(false), 1500);
         return;
       }
+    } catch {
+      // fall through to plain text
+    }
 
-      // Strategy 2 (FALLBACK): DOM-based execCommand copy.
-      //
-      // Used only when ClipboardItem is unavailable (older browsers / Firefox
-      // without async clipboard permission).  The container is clipped to a
-      // 1×1 pixel with overflow:hidden so it is invisible but still fully
-      // painted — avoiding the Chromium left:-9999px text-omission bug.
-      const domOk = copyViaDOM(markdown, intro);
-      if (domOk) {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1500);
-        return;
-      }
-
-      // Strategy 3: plain text last resort.
+    // Strategy 3: plain text last resort.
+    try {
       await navigator.clipboard.writeText(text);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
@@ -95,81 +96,21 @@ export default function BillingTable({ title, markdown, footnote, intro }: Props
   );
 }
 
-function copyViaDOM(md: string, intro?: string): boolean {
-  const lines = md.split("\n").filter((l) => l.trim().startsWith("|"));
-  const rawRows = lines.map((l) =>
-    l
-      .replace(/^\s*\|/, "")
-      .replace(/\|\s*$/, "")
-      .split("|")
-      .map((c) => c.trim()),
-  );
-  const nonSepRows = rawRows.filter(
-    (r) => !r.every((c) => /^-+$/.test(c) || c === ""),
-  );
-  if (nonSepRows.length === 0) return false;
+/**
+ * Copies an HTML string to the clipboard via execCommand("copy").
+ * The element is rendered at position (0,0) with visibility:hidden so Chrome
+ * fully lays it out and serialises all text nodes into CF_HTML, then it is
+ * removed before the user can see it.
+ */
+function copyViaDOM(html: string): boolean {
+  if (typeof document === "undefined") return false;
 
-  const [headerRow, ...bodyRows] = nonSepRows;
-
-  // Position at top-left of the viewport but clip to 1×1 px.
-  // This keeps the element fully painted (so execCommand serialises all text)
-  // while remaining invisible to the user.  Using left:-9999px instead causes
-  // Chromium on Windows to omit off-screen text nodes from CF_HTML, producing
-  // an empty table when pasted into Word.
   const container = document.createElement("div");
+  // visibility:hidden keeps the element in the layout/render tree so the
+  // browser includes all text when serialising to CF_HTML for the clipboard.
   container.style.cssText =
-    "position:fixed;top:0;left:0;width:1px;height:1px;overflow:hidden;pointer-events:none;";
-
-  if (intro) {
-    const p = document.createElement("p");
-    p.style.cssText =
-      "font-family:Calibri,Arial,sans-serif;font-size:11pt;margin:0 0 8pt 0;";
-    p.textContent = intro;
-    container.appendChild(p);
-  }
-
-  const table = document.createElement("table");
-  table.setAttribute("border", "1");
-  table.setAttribute("cellspacing", "0");
-  table.setAttribute("cellpadding", "0");
-  table.style.cssText =
-    "border-collapse:collapse;font-family:Calibri,Arial,sans-serif;font-size:11pt;background-color:white;";
-
-  const thead = document.createElement("thead");
-  const headerTr = document.createElement("tr");
-  for (const rawCell of headerRow) {
-    const th = document.createElement("th");
-    th.style.cssText =
-      "border:1px solid #000;padding:4px 8px;text-align:left;font-weight:600;background-color:white;color:#000;";
-    const p = document.createElement("p");
-    p.style.margin = "0";
-    p.textContent = cleanCell(rawCell);
-    th.appendChild(p);
-    headerTr.appendChild(th);
-  }
-  thead.appendChild(headerTr);
-  table.appendChild(thead);
-
-  const tbody = document.createElement("tbody");
-  for (const row of bodyRows) {
-    const isTotals = cleanCell(row[0] ?? "").toUpperCase() === "TOTALS";
-    const tr = document.createElement("tr");
-    for (const rawCell of row) {
-      const td = document.createElement("td");
-      td.style.cssText = `border:1px solid #000;padding:4px 8px;background-color:white;color:#000;${
-        isTotals ? "font-weight:600;" : ""
-      }`;
-      const p = document.createElement("p");
-      p.style.margin = "0";
-      p.textContent = cleanCell(rawCell);
-      td.appendChild(p);
-      tr.appendChild(td);
-    }
-    tbody.appendChild(tr);
-  }
-  table.appendChild(tbody);
-  container.appendChild(table);
-
+    "position:fixed;top:0;left:0;visibility:hidden;pointer-events:none;";
+  container.innerHTML = html;
   document.body.appendChild(container);
 
   const selection = window.getSelection();

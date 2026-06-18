@@ -30,31 +30,70 @@ describe("cleanCell", () => {
 describe("parseMarkdownTable", () => {
   it("drops the separator row", () => {
     const rows = parseMarkdownTable(SAMPLE_MD);
-    const hasSeparator = rows.some((r) => r.every((c) => /^-+$/.test(c) || c === ""));
-    expect(hasSeparator).toBe(false);
+    expect(rows.some((r) => r.every((c) => /^-+$/.test(c) || c === ""))).toBe(false);
   });
   it("returns header + 3 data rows", () => {
-    const rows = parseMarkdownTable(SAMPLE_MD);
-    expect(rows).toHaveLength(4); // header + 2 data + totals
+    expect(parseMarkdownTable(SAMPLE_MD)).toHaveLength(4);
   });
   it("strips bold from totals row", () => {
     const rows = parseMarkdownTable(SAMPLE_MD);
-    const totals = rows[rows.length - 1];
-    expect(totals[0]).toBe("TOTALS");
-    expect(totals[2]).toBe("$8,434");
+    expect(rows[rows.length - 1][0]).toBe("TOTALS");
+    expect(rows[rows.length - 1][2]).toBe("$8,434");
   });
 });
 
-describe("buildWordHtml — structure", () => {
-  it("includes HTML border attribute on table (Word Online reads attributes)", () => {
+describe("buildWordHtml — exact fbde7fb structure (last known working)", () => {
+  it("produces a bare fragment — no <html>/<head>/<body> wrapper", () => {
     const html = buildWordHtml(SAMPLE_MD);
-    expect(html).toContain('border="1"');
+    expect(html).not.toContain("<html");
+    expect(html).not.toContain("<head");
+    expect(html).not.toContain("<body");
   });
 
-  it("excludes the separator row", () => {
+  it("has no Office xmlns (breaks Word Online)", () => {
     const html = buildWordHtml(SAMPLE_MD);
-    expect(html).not.toContain("------");
-    expect(html).not.toContain("---");
+    expect(html).not.toContain("xmlns:w");
+    expect(html).not.toContain("xmlns:o");
+  });
+
+  it("has no <p> inside cells (breaks Word Online table structure)", () => {
+    const html = buildWordHtml(SAMPLE_MD);
+    expect(html).not.toMatch(/<t[dh][^>]*><p/);
+    expect(html).not.toContain("<p>");
+  });
+
+  it("uses border on the <table> element (exact working style)", () => {
+    const html = buildWordHtml(SAMPLE_MD);
+    expect(html).toContain('border:1px solid #000');
+    expect(html).toMatch(/<table style="[^"]*border:1px solid #000/);
+  });
+
+  it("header cells contain text directly", () => {
+    const html = buildWordHtml(SAMPLE_MD);
+    expect(html).toContain(">DATE<");
+    expect(html).toContain(">CPT CODE<");
+    expect(html).toContain(">120% MEDICARE<");
+    expect(html).toContain(">OCSF CHARGE<");
+  });
+
+  it("data cells contain text directly", () => {
+    const html = buildWordHtml(SAMPLE_MD);
+    expect(html).toContain(">04/12/2024<");
+    expect(html).toContain(">27447<");
+    expect(html).toContain(">$5,234<");
+    expect(html).toContain(">$8,900<");
+  });
+
+  it("totals row text is present (bold stripped)", () => {
+    const html = buildWordHtml(SAMPLE_MD);
+    expect(html).toContain(">TOTALS<");
+    expect(html).toContain(">$8,434<");
+    expect(html).toContain(">$12,500<");
+  });
+
+  it("totals row has font-weight:600", () => {
+    const html = buildWordHtml(SAMPLE_MD);
+    expect(html).toContain("font-weight:600");
   });
 
   it("returns empty string for empty input", () => {
@@ -65,108 +104,32 @@ describe("buildWordHtml — structure", () => {
   it("includes intro paragraph when provided", () => {
     const html = buildWordHtml(SAMPLE_MD, "Patient: John Doe");
     expect(html).toContain("Patient: John Doe");
+    expect(html).toContain("<p style=");
   });
 
-  it("escapes HTML special characters in cell content", () => {
+  it("escapes HTML special characters", () => {
     const md = `| A & B | C < D |\n| --- | --- |\n| x > y | z |`;
     const html = buildWordHtml(md);
     expect(html).toContain("A &amp; B");
     expect(html).toContain("C &lt; D");
     expect(html).toContain("x &gt; y");
   });
-});
 
-describe("buildWordHtml — Word Online compatibility (no xmlns, no <p> in cells, no doc envelope)", () => {
-  it("does NOT include Office xmlns (breaks Word Online paste handler)", () => {
+  it("separator row is excluded", () => {
     const html = buildWordHtml(SAMPLE_MD);
-    expect(html).not.toContain("xmlns:w");
-    expect(html).not.toContain("xmlns:o");
-    expect(html).not.toContain("urn:schemas-microsoft-com");
-  });
-
-  it("does NOT wrap in <html><head><body> envelope (breaks Word Online table paste)", () => {
-    const html = buildWordHtml(SAMPLE_MD);
-    expect(html).not.toContain("<html");
-    expect(html).not.toContain("<head");
-    expect(html).not.toContain("<body");
-  });
-
-  it("does NOT wrap cell text in <p> tags (Word Online splits them out of the table)", () => {
-    const html = buildWordHtml(SAMPLE_MD);
-    // <p> inside <td> causes Word Online to render cells as loose paragraphs
-    expect(html).not.toMatch(/<td[^>]*><p/);
-    expect(html).not.toMatch(/<th[^>]*><p/);
-  });
-
-  it("places data directly in <th> cells", () => {
-    const html = buildWordHtml(SAMPLE_MD);
-    expect(html).toContain(">DATE<");
-    expect(html).toContain(">CPT CODE<");
-    expect(html).toContain(">120% MEDICARE<");
-    expect(html).toContain(">OCSF CHARGE<");
-  });
-
-  it("places data directly in <td> cells", () => {
-    const html = buildWordHtml(SAMPLE_MD);
-    expect(html).toContain(">04/12/2024<");
-    expect(html).toContain(">27447<");
-    expect(html).toContain(">$5,234<");
-    expect(html).toContain(">$8,900<");
-  });
-
-  it("wraps bold totals in <strong> only (no <p>)", () => {
-    const html = buildWordHtml(SAMPLE_MD);
-    expect(html).toContain("<strong>TOTALS</strong>");
-    expect(html).toContain("<strong>$8,434</strong>");
-    expect(html).toContain("<strong>$12,500</strong>");
-    expect(html).not.toContain("<p>");
-  });
-});
-
-describe("buildWordHtml — white background (gray-shading regression)", () => {
-  it("sets background-color:white on <th> cells", () => {
-    const html = buildWordHtml(SAMPLE_MD);
-    const thMatches = [...html.matchAll(/<th style="([^"]+)"/g)];
-    expect(thMatches.length).toBeGreaterThan(0);
-    for (const m of thMatches) {
-      expect(m[1]).toContain("background-color:white");
-    }
-  });
-
-  it("sets background-color:white on <td> cells", () => {
-    const html = buildWordHtml(SAMPLE_MD);
-    const tdMatches = [...html.matchAll(/<td style="([^"]+)"/g)];
-    expect(tdMatches.length).toBeGreaterThan(0);
-    for (const m of tdMatches) {
-      expect(m[1]).toContain("background-color:white");
-    }
-  });
-
-  it("sets color:black on all cells", () => {
-    const html = buildWordHtml(SAMPLE_MD);
-    const cellMatches = [...html.matchAll(/<t[dh] style="([^"]+)"/g)];
-    for (const m of cellMatches) {
-      expect(m[1]).toContain("color:black");
-    }
-  });
-
-  it("does NOT use gray background on any cell", () => {
-    const html = buildWordHtml(SAMPLE_MD);
-    expect(html).not.toContain("#f0f0f0");
-    expect(html).not.toContain("background:#");
+    expect(html).not.toContain("------");
+    expect(html).not.toContain("---");
   });
 });
 
 describe("buildPlainText", () => {
   it("produces tab-delimited rows", () => {
     const text = buildPlainText(SAMPLE_MD);
-    const lines = text.split("\n");
-    expect(lines[0]).toBe("DATE\tCPT CODE\t120% MEDICARE\tOCSF CHARGE");
-    expect(lines[1]).toBe("04/12/2024\t27447\t$5,234\t$8,900");
+    expect(text.split("\n")[0]).toBe("DATE\tCPT CODE\t120% MEDICARE\tOCSF CHARGE");
+    expect(text.split("\n")[1]).toBe("04/12/2024\t27447\t$5,234\t$8,900");
   });
 
   it("prepends intro when provided", () => {
-    const text = buildPlainText(SAMPLE_MD, "Patient: Doe");
-    expect(text.startsWith("Patient: Doe\n\n")).toBe(true);
+    expect(buildPlainText(SAMPLE_MD, "Patient: Doe").startsWith("Patient: Doe\n\n")).toBe(true);
   });
 });
