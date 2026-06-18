@@ -76,12 +76,19 @@ describe("buildWordHtml — structure", () => {
   });
 });
 
-describe("buildWordHtml — Word Online compatibility (no xmlns, no <p> in cells)", () => {
+describe("buildWordHtml — Word Online compatibility (no xmlns, no <p> in cells, no doc envelope)", () => {
   it("does NOT include Office xmlns (breaks Word Online paste handler)", () => {
     const html = buildWordHtml(SAMPLE_MD);
     expect(html).not.toContain("xmlns:w");
     expect(html).not.toContain("xmlns:o");
     expect(html).not.toContain("urn:schemas-microsoft-com");
+  });
+
+  it("does NOT wrap in <html><head><body> envelope (breaks Word Online table paste)", () => {
+    const html = buildWordHtml(SAMPLE_MD);
+    expect(html).not.toContain("<html");
+    expect(html).not.toContain("<head");
+    expect(html).not.toContain("<body");
   });
 
   it("does NOT wrap cell text in <p> tags (Word Online splits them out of the table)", () => {

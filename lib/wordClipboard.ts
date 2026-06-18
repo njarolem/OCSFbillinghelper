@@ -129,12 +129,12 @@ export function buildWordHtml(md: string, intro?: string): string {
       `margin:0 0 8pt 0;">${escapeHtml(intro)}</p>`
     : "";
 
-  // Plain <html> — no Office xmlns. Those namespaces help desktop Word's
-  // legacy importer but break Word Online's browser-based paste handler.
-  return (
-    `<html><head><meta charset="utf-8"></head>` +
-    `<body>${introHtml}${tableHtml}</body></html>`
-  );
+  // Return a bare fragment (no <html><head><body> wrapper).
+  // Word Online's paste handler receives this as a text/html ClipboardItem and
+  // renders it inline — wrapping in a full document envelope breaks the table
+  // paste (regression introduced in bf43966). Desktop Word also handles plain
+  // fragments fine via ClipboardItem.
+  return `${introHtml}${tableHtml}`;
 }
 
 // Tab-delimited plain-text fallback for clipboard.
