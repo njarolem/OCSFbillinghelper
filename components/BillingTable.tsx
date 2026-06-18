@@ -98,18 +98,33 @@ export default function BillingTable({ title, markdown, footnote, intro }: Props
 
 /**
  * Copies an HTML string to the clipboard via execCommand("copy").
- * The element is rendered at position (0,0) with visibility:hidden so Chrome
- * fully lays it out and serialises all text nodes into CF_HTML, then it is
- * removed before the user can see it.
+ *
+ * The element is clipped to 1×1 px via overflow:hidden rather than hidden
+ * with visibility:hidden. Chrome on Windows stopped serialising text nodes
+ * from visibility:hidden elements into CF_HTML (the format Word desktop reads)
+ * in some builds — execCommand() still returns true but Word receives empty
+ * cells. The overflow:hidden clip keeps the element fully in the layout and
+ * render tree so all text nodes are captured, while preventing any flash.
+ *
+ * Diagnostic tip: if empty-cell paste re-appears, test in Word with
+ * Paste Special → Keep Source Formatting. If *that* also produces empty cells
+ * the HTML content itself is the problem; if it works, the issue is in how the
+ * browser is negotiating the clipboard format with Word (CF_HTML vs. RTF).
+ *
+ * History of discarded approaches:
+ *  - left:-9999px   → Chromium paint-clips off-screen elements, strips CF_HTML text
+ *  - opacity:0      → same paint-clip issue on some Windows Chrome builds
+ *  - visibility:hidden → was working, broke silently with a Chrome/Windows update;
+ *                        structure arrives in Word correctly but text nodes are lost
  */
 function copyViaDOM(html: string): boolean {
   if (typeof document === "undefined") return false;
 
   const container = document.createElement("div");
-  // visibility:hidden keeps the element in the layout/render tree so the
-  // browser includes all text when serialising to CF_HTML for the clipboard.
+  // overflow:hidden at 1×1px clips the element visually while keeping it fully
+  // in the layout/render tree so Chrome includes all text in the CF_HTML payload.
   container.style.cssText =
-    "position:fixed;top:0;left:0;visibility:hidden;pointer-events:none;";
+    "position:fixed;top:0;left:0;width:1px;height:1px;overflow:hidden;pointer-events:none;";
   container.innerHTML = html;
   document.body.appendChild(container);
 
