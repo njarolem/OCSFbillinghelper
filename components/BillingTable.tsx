@@ -22,80 +22,33 @@ export default function BillingTable({ title, markdown, footnote, intro }: Props
     const html = buildWordHtml(markdown, intro);
     const text = buildPlainText(markdown, intro);
 
-    // === Clipboard strategy overview ===
-    //
-    // The root problem on Windows + Chrome + Word Desktop:
-    //   execCommand("copy") on a DOM element puts TWO formats on the clipboard:
-    //   CF_HTML (the actual HTML) and CF_ENHMETAFILE (a Windows Enhanced Metafile —
-    //   a vector image of the rendered DOM). Word on Windows prefers EMF over CF_HTML.
-    //   The EMF shows table borders (hence the correctly-shaped empty boxes users see)
-    //   but contains no text, because the copy element was clipped or hidden during
-    //   rendering. Outlook ignores EMF and reads CF_HTML directly (works). Mac has no
-    //   EMF format (works). Word Desktop on Windows picks EMF and gets empty cells.
-    //
-    // Fix for Windows: use ClipboardItem (navigator.clipboard.write), which only puts
-    //   text/html and text/plain on the clipboard — no EMF. Word finds no EMF and reads
-    //   the HTML correctly.
-    //
-    // Why execCommand is kept for non-Windows:
-    //   Chrome on Windows also has a regression in navigator.clipboard.write() where
-    //   text/html loses cell text for Word Online. On Mac/Linux, execCommand is clean
-    //   and avoids that path entirely.
-    //
-    // Diagnostic tip: if empty-cell paste ever reappears, try
-    //   Paste Special → Keep Source Formatting in Word.
-    //   - If that ALSO shows empty cells → the HTML content itself is wrong.
-    //   - If that works but Ctrl+V doesn't → Word is picking the wrong clipboard format
-    //     (EMF or RTF taking priority over CF_HTML).
-
-    const isWindows = typeof navigator !== "undefined" &&
-      /Win/i.test(navigator.platform || navigator.userAgent);
-
-    if (!isWindows) {
-      // Non-Windows (Mac, Linux): execCommand produces clean CF_HTML with no EMF.
-      const domOk = copyViaDOM(html);
-      if (domOk) {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1500);
-        return;
-      }
-    }
-
-    // Windows primary path (and universal fallback): ClipboardItem with text/html only.
-    // No DOM element is created, so no EMF is generated. Word Desktop reads CF_HTML.
+    // Primary: async Clipboard API with both formats.
+    // text/html  → Word for the web, Word Desktop, Outlook all read this.
+    // text/plain → tab-delimited fallback; user can run Convert Text to Table.
+    // No DOM element is created so no CF_ENHMETAFILE (Windows Enhanced Metafile)
+    // is placed on the clipboard — EMF was the root cause of the empty-box symptom
+    // in Word Desktop on Windows when execCommand was used instead.
     try {
-      if (html && typeof ClipboardItem !== "undefined" && navigator.clipboard?.write) {
-        await navigator.clipboard.write([
-          new ClipboardItem({
-            "text/html": new Blob([html], { type: "text/html" }),
-            "text/plain": new Blob([text], { type: "text/plain" }),
-          }),
-        ]);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1500);
-        return;
-      }
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          "text/html": new Blob([html], { type: "text/html" }),
+          "text/plain": new Blob([text], { type: "text/plain" }),
+        }),
+      ]);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+      return;
     } catch {
-      // fall through
+      // ClipboardItem unavailable or permission denied — fall through to plain text.
     }
 
-    // Windows fallback: execCommand (in case ClipboardItem is blocked).
-    if (isWindows) {
-      const domOk = copyViaDOM(html);
-      if (domOk) {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1500);
-        return;
-      }
-    }
-
-    // Strategy 3: plain text last resort.
+    // Fallback: plain text only (tab-delimited).
     try {
       await navigator.clipboard.writeText(text);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
-      // ignore
+      // ignore — nothing more we can do
     }
   }
 
@@ -107,7 +60,7 @@ export default function BillingTable({ title, markdown, footnote, intro }: Props
           type="button"
           onClick={copy}
           className="h-9 px-3 rounded-md text-sm font-medium border border-border bg-white hover:bg-slate-50"
-          aria-label={`Copy ${title} as markdown`}
+          aria-label={`Copy ${title} as table`}
         >
           {copied ? "Copied" : "Copy"}
         </button>
@@ -122,50 +75,4 @@ export default function BillingTable({ title, markdown, footnote, intro }: Props
       </div>
     </section>
   );
-}
-
-/**
- * Copies an HTML string to the clipboard via execCommand("copy").
- *
- * The element is clipped to 1×1 px via overflow:hidden rather than hidden
- * with visibility:hidden. Chrome on Windows stopped serialising text nodes
- * from visibility:hidden elements into CF_HTML (the format Word desktop reads)
- * in some builds — execCommand() still returns true but Word receives empty
- * cells. The overflow:hidden clip keeps the element fully in the layout and
- * render tree so all text nodes are captured, while preventing any flash.
- *
- * Diagnostic tip: if empty-cell paste re-appears, test in Word with
- * Paste Special → Keep Source Formatting. If *that* also produces empty cells
- * the HTML content itself is the problem; if it works, the issue is in how the
- * browser is negotiating the clipboard format with Word (CF_HTML vs. RTF).
- *
- * History of discarded approaches:
- *  - left:-9999px   → Chromium paint-clips off-screen elements, strips CF_HTML text
- *  - opacity:0      → same paint-clip issue on some Windows Chrome builds
- *  - visibility:hidden → was working, broke silently with a Chrome/Windows update;
- *                        structure arrives in Word correctly but text nodes are lost
- */
-function copyViaDOM(html: string): boolean {
-  if (typeof document === "undefined") return false;
-
-  const container = document.createElement("div");
-  // overflow:hidden at 1×1px clips the element visually while keeping it fully
-  // in the layout/render tree so Chrome includes all text in the CF_HTML payload.
-  container.style.cssText =
-    "position:fixed;top:0;left:0;width:1px;height:1px;overflow:hidden;pointer-events:none;";
-  container.innerHTML = html;
-  document.body.appendChild(container);
-
-  const selection = window.getSelection();
-  const range = document.createRange();
-  range.selectNodeContents(container);
-  selection?.removeAllRanges();
-  selection?.addRange(range);
-
-  const result = document.execCommand("copy");
-
-  selection?.removeAllRanges();
-  document.body.removeChild(container);
-
-  return result;
 }
