@@ -95,7 +95,7 @@ function copyViaDOM(md: string, intro?: string): boolean {
 
   const container = document.createElement("div");
   container.style.cssText =
-    "position:fixed;top:0;left:0;opacity:0;pointer-events:none;z-index:-1;";
+    "position:fixed;top:0;left:-9999px;pointer-events:none;";
 
   if (intro) {
     const p = document.createElement("p");
@@ -117,7 +117,7 @@ function copyViaDOM(md: string, intro?: string): boolean {
   for (const rawCell of headerRow) {
     const th = document.createElement("th");
     th.style.cssText =
-      "border:1px solid #000;padding:4px 8px;text-align:left;font-weight:600;background:#f0f0f0;";
+      "border:1px solid #000;padding:4px 8px;text-align:left;font-weight:600;background-color:white;color:#000;";
     const p = document.createElement("p");
     p.style.margin = "0";
     p.textContent = cleanCell(rawCell);
@@ -133,7 +133,7 @@ function copyViaDOM(md: string, intro?: string): boolean {
     const tr = document.createElement("tr");
     for (const rawCell of row) {
       const td = document.createElement("td");
-      td.style.cssText = `border:1px solid #000;padding:4px 8px;${
+      td.style.cssText = `border:1px solid #000;padding:4px 8px;background-color:white;color:#000;${
         isTotals ? "font-weight:600;" : ""
       }`;
       const p = document.createElement("p");
