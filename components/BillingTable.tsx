@@ -22,29 +22,47 @@ export default function BillingTable({ title, markdown, footnote, intro }: Props
     const html = buildWordHtml(markdown, intro);
     const text = buildPlainText(markdown, intro);
 
-    // Strategy 1 (PRIMARY): execCommand("copy") from a visibility:hidden element.
+    // === Clipboard strategy overview ===
     //
-    // Why primary: Chrome on Windows has a regression in navigator.clipboard.write()
-    // where text/html content loses cell text during the HTML→CF_HTML→HTML round-trip
-    // (cells arrive with correct structure but empty content in Word Online).
-    // execCommand("copy") bypasses that path — the browser serialises the live DOM
-    // directly to CF_HTML, which preserves all text nodes.
+    // The root problem on Windows + Chrome + Word Desktop:
+    //   execCommand("copy") on a DOM element puts TWO formats on the clipboard:
+    //   CF_HTML (the actual HTML) and CF_ENHMETAFILE (a Windows Enhanced Metafile —
+    //   a vector image of the rendered DOM). Word on Windows prefers EMF over CF_HTML.
+    //   The EMF shows table borders (hence the correctly-shaped empty boxes users see)
+    //   but contains no text, because the copy element was clipped or hidden during
+    //   rendering. Outlook ignores EMF and reads CF_HTML directly (works). Mac has no
+    //   EMF format (works). Word Desktop on Windows picks EMF and gets empty cells.
     //
-    // Why visibility:hidden (not left:-9999px or opacity:0):
-    // - left:-9999px: Chromium paint-clips off-screen elements, stripping text from CF_HTML
-    // - opacity:0: same issue on some Windows builds
-    // - visibility:hidden at top:0/left:0: element is in the layout tree and fully
-    //   rendered at the correct position; only the paint output is suppressed.
-    //   The DOM serialiser used by execCommand sees all text nodes.
-    const domOk = copyViaDOM(html);
-    if (domOk) {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-      return;
+    // Fix for Windows: use ClipboardItem (navigator.clipboard.write), which only puts
+    //   text/html and text/plain on the clipboard — no EMF. Word finds no EMF and reads
+    //   the HTML correctly.
+    //
+    // Why execCommand is kept for non-Windows:
+    //   Chrome on Windows also has a regression in navigator.clipboard.write() where
+    //   text/html loses cell text for Word Online. On Mac/Linux, execCommand is clean
+    //   and avoids that path entirely.
+    //
+    // Diagnostic tip: if empty-cell paste ever reappears, try
+    //   Paste Special → Keep Source Formatting in Word.
+    //   - If that ALSO shows empty cells → the HTML content itself is wrong.
+    //   - If that works but Ctrl+V doesn't → Word is picking the wrong clipboard format
+    //     (EMF or RTF taking priority over CF_HTML).
+
+    const isWindows = typeof navigator !== "undefined" &&
+      /Win/i.test(navigator.platform || navigator.userAgent);
+
+    if (!isWindows) {
+      // Non-Windows (Mac, Linux): execCommand produces clean CF_HTML with no EMF.
+      const domOk = copyViaDOM(html);
+      if (domOk) {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+        return;
+      }
     }
 
-    // Strategy 2 (FALLBACK): ClipboardItem with text/html.
-    // Used when execCommand is unavailable or blocked (some Firefox configs).
+    // Windows primary path (and universal fallback): ClipboardItem with text/html only.
+    // No DOM element is created, so no EMF is generated. Word Desktop reads CF_HTML.
     try {
       if (html && typeof ClipboardItem !== "undefined" && navigator.clipboard?.write) {
         await navigator.clipboard.write([
@@ -58,7 +76,17 @@ export default function BillingTable({ title, markdown, footnote, intro }: Props
         return;
       }
     } catch {
-      // fall through to plain text
+      // fall through
+    }
+
+    // Windows fallback: execCommand (in case ClipboardItem is blocked).
+    if (isWindows) {
+      const domOk = copyViaDOM(html);
+      if (domOk) {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+        return;
+      }
     }
 
     // Strategy 3: plain text last resort.
