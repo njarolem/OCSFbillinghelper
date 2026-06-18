@@ -48,48 +48,48 @@ function parseRawCells(line: string): string[] {
     .map((c) => c.trim());
 }
 
-function cellHtml(rawCell: string, tag: "th" | "td", extraStyle = ""): string {
-  // background-color:white and color:#000 must be explicit — Word on Windows
-  // applies its own gray shading and may use a light theme color when absent.
-  const base =
-    "border:1px solid #000;padding:4px 8px;background-color:white;color:#000;" +
-    (tag === "th" ? "font-weight:600;" : "") +
-    extraStyle;
-  const clean = cleanCell(rawCell);
-  // margin:0 on <p> prevents Word from rendering extra blank space above/below
-  // the text, which can make cells appear visually empty.
-  const inner = isBold(rawCell)
-    ? `<p style="margin:0;"><strong>${escapeHtml(clean)}</strong></p>`
-    : `<p style="margin:0;">${escapeHtml(clean)}</p>`;
-  return `<${tag} style="${base}">${inner}</${tag}>`;
-}
-
 /**
- * Builds a Word-compatible HTML string from a pipe-delimited markdown table.
- * Key requirements satisfied:
- *  - xmlns namespace declarations activate Word's full HTML import filter
- *  - border/cellspacing/cellpadding HTML attributes (Word reads attributes, not just CSS)
- *  - Every cell contains <p style="margin:0;">text</p> — Word discards bare text nodes
- *  - background-color:white + color:#000 override Word's default gray shading
- *  - Bold totals rows use <strong> inside the <p>
+ * Builds a clean HTML table for ClipboardItem paste into Word Online and
+ * desktop Word.
+ *
+ * Design rationale:
+ *  - NO Office xmlns (xmlns:w/xmlns:o) — those activate desktop Word's legacy
+ *    HTML importer but confuse Word Online's browser-based paste handler,
+ *    causing cells to be dropped or rendered as loose paragraphs.
+ *  - NO <p> wrapper inside cells — Word Online treats <p> inside <td> as a
+ *    block element and may split it out of the table, producing loose text.
+ *    Direct text nodes in <td> work for both Word Online and desktop Word
+ *    when delivered via ClipboardItem (as opposed to execCommand, where bare
+ *    text nodes can be lost).
+ *  - border="1" + cellpadding HTML attributes — Word (both versions) reads
+ *    HTML attributes for table layout, not just CSS.
+ *  - background-color:white + color:black explicit on every cell — prevents
+ *    Word from applying default gray shading.
+ *  - <strong> for bold totals row — universally understood by both versions.
  */
 export function buildWordHtml(md: string, intro?: string): string {
   const lines = md.split("\n").filter((l) => l.trim().startsWith("|"));
   if (lines.length === 0) return "";
 
-  // Separate header, separator, and body lines while preserving raw markup.
   const rawRows = lines.map(parseRawCells);
-  const nonSepLines = lines.filter(
-    (_, i) => !isSeparatorRow(rawRows[i]),
-  );
+  const nonSepLines = lines.filter((_, i) => !isSeparatorRow(rawRows[i]));
   if (nonSepLines.length === 0) return "";
 
   const [headerLine, ...bodyLines] = nonSepLines;
   const headerCells = parseRawCells(headerLine);
 
+  const thStyle =
+    "border:1px solid black;padding:6px 8px;background-color:white;" +
+    "color:black;font-weight:bold;text-align:left;";
+  const tdStyle =
+    "border:1px solid black;padding:6px 8px;background-color:white;color:black;";
+  const tdBoldStyle = tdStyle + "font-weight:bold;";
+
   const thead =
     "<thead><tr>" +
-    headerCells.map((c) => cellHtml(c, "th")).join("") +
+    headerCells
+      .map((c) => `<th style="${thStyle}">${escapeHtml(cleanCell(c))}</th>`)
+      .join("") +
     "</tr></thead>";
 
   const tbody =
@@ -97,9 +97,19 @@ export function buildWordHtml(md: string, intro?: string): string {
     bodyLines
       .map((line) => {
         const cells = parseRawCells(line);
+        const isTotal = cleanCell(cells[0] ?? "").toUpperCase() === "TOTALS";
         return (
           "<tr>" +
-          cells.map((c) => cellHtml(c, "td")).join("") +
+          cells
+            .map((c) => {
+              const clean = cleanCell(c);
+              const style = isTotal ? tdBoldStyle : tdStyle;
+              const content = isBold(c)
+                ? `<strong>${escapeHtml(clean)}</strong>`
+                : escapeHtml(clean);
+              return `<td style="${style}">${content}</td>`;
+            })
+            .join("") +
           "</tr>"
         );
       })
@@ -108,22 +118,22 @@ export function buildWordHtml(md: string, intro?: string): string {
 
   const tableHtml =
     `<table border="1" cellspacing="0" cellpadding="0" ` +
-    `style="border-collapse:collapse;font-family:Calibri,Arial,sans-serif;font-size:11pt;background-color:white;">` +
+    `style="border-collapse:collapse;font-family:Calibri,Arial,sans-serif;` +
+    `font-size:11pt;background-color:white;">` +
     thead +
     tbody +
     `</table>`;
 
   const introHtml = intro
-    ? `<p style="font-family:Calibri,Arial,sans-serif;font-size:11pt;margin:0 0 8pt 0;">${escapeHtml(intro)}</p>`
+    ? `<p style="font-family:Calibri,Arial,sans-serif;font-size:11pt;` +
+      `margin:0 0 8pt 0;">${escapeHtml(intro)}</p>`
     : "";
 
+  // Plain <html> — no Office xmlns. Those namespaces help desktop Word's
+  // legacy importer but break Word Online's browser-based paste handler.
   return (
-    `<html xmlns:o="urn:schemas-microsoft-com:office:office" ` +
-    `xmlns:w="urn:schemas-microsoft-com:office:word" ` +
-    `xmlns="http://www.w3.org/TR/REC-html40">` +
-    `<head><meta charset="utf-8"></head>` +
-    `<body>${introHtml}${tableHtml}</body>` +
-    `</html>`
+    `<html><head><meta charset="utf-8"></head>` +
+    `<body>${introHtml}${tableHtml}</body></html>`
   );
 }
 

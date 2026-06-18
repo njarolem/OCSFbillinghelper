@@ -45,14 +45,8 @@ describe("parseMarkdownTable", () => {
   });
 });
 
-describe("buildWordHtml — Office namespace & structure", () => {
-  it("includes Office xmlns namespace declarations", () => {
-    const html = buildWordHtml(SAMPLE_MD);
-    expect(html).toContain('xmlns:w="urn:schemas-microsoft-com:office:word"');
-    expect(html).toContain('xmlns:o="urn:schemas-microsoft-com:office:office"');
-  });
-
-  it("includes HTML border attribute on table", () => {
+describe("buildWordHtml — structure", () => {
+  it("includes HTML border attribute on table (Word Online reads attributes)", () => {
     const html = buildWordHtml(SAMPLE_MD);
     expect(html).toContain('border="1"');
   });
@@ -82,36 +76,49 @@ describe("buildWordHtml — Office namespace & structure", () => {
   });
 });
 
-describe("buildWordHtml — cell content (empty-cell bug regression)", () => {
-  it("wraps header cells in <p style=\"margin:0;\">", () => {
+describe("buildWordHtml — Word Online compatibility (no xmlns, no <p> in cells)", () => {
+  it("does NOT include Office xmlns (breaks Word Online paste handler)", () => {
     const html = buildWordHtml(SAMPLE_MD);
-    // Cells must use <p style="margin:0;"> so Word renders text, not an empty-looking paragraph
-    expect(html).toContain('<p style="margin:0;">DATE</p>');
-    expect(html).toContain('<p style="margin:0;">CPT CODE</p>');
-    expect(html).toContain('<p style="margin:0;">120% MEDICARE</p>');
-    expect(html).toContain('<p style="margin:0;">OCSF CHARGE</p>');
+    expect(html).not.toContain("xmlns:w");
+    expect(html).not.toContain("xmlns:o");
+    expect(html).not.toContain("urn:schemas-microsoft-com");
   });
 
-  it("wraps data cells in <p style=\"margin:0;\">", () => {
+  it("does NOT wrap cell text in <p> tags (Word Online splits them out of the table)", () => {
     const html = buildWordHtml(SAMPLE_MD);
-    expect(html).toContain('<p style="margin:0;">04/12/2024</p>');
-    expect(html).toContain('<p style="margin:0;">27447</p>');
-    expect(html).toContain('<p style="margin:0;">$5,234</p>');
-    expect(html).toContain('<p style="margin:0;">$8,900</p>');
+    // <p> inside <td> causes Word Online to render cells as loose paragraphs
+    expect(html).not.toMatch(/<td[^>]*><p/);
+    expect(html).not.toMatch(/<th[^>]*><p/);
   });
 
-  it("wraps bold totals cells in <p style=\"margin:0;\"><strong>", () => {
+  it("places data directly in <th> cells", () => {
     const html = buildWordHtml(SAMPLE_MD);
-    expect(html).toContain('<p style="margin:0;"><strong>TOTALS</strong></p>');
-    expect(html).toContain('<p style="margin:0;"><strong>$8,434</strong></p>');
-    expect(html).toContain('<p style="margin:0;"><strong>$12,500</strong></p>');
+    expect(html).toContain(">DATE<");
+    expect(html).toContain(">CPT CODE<");
+    expect(html).toContain(">120% MEDICARE<");
+    expect(html).toContain(">OCSF CHARGE<");
+  });
+
+  it("places data directly in <td> cells", () => {
+    const html = buildWordHtml(SAMPLE_MD);
+    expect(html).toContain(">04/12/2024<");
+    expect(html).toContain(">27447<");
+    expect(html).toContain(">$5,234<");
+    expect(html).toContain(">$8,900<");
+  });
+
+  it("wraps bold totals in <strong> only (no <p>)", () => {
+    const html = buildWordHtml(SAMPLE_MD);
+    expect(html).toContain("<strong>TOTALS</strong>");
+    expect(html).toContain("<strong>$8,434</strong>");
+    expect(html).toContain("<strong>$12,500</strong>");
+    expect(html).not.toContain("<p>");
   });
 });
 
-describe("buildWordHtml — white background (gray-shading bug regression)", () => {
+describe("buildWordHtml — white background (gray-shading regression)", () => {
   it("sets background-color:white on <th> cells", () => {
     const html = buildWordHtml(SAMPLE_MD);
-    // Every <th> must have explicit white background so Word doesn't shade it gray
     const thMatches = [...html.matchAll(/<th style="([^"]+)"/g)];
     expect(thMatches.length).toBeGreaterThan(0);
     for (const m of thMatches) {
@@ -128,25 +135,16 @@ describe("buildWordHtml — white background (gray-shading bug regression)", () 
     }
   });
 
-  it("sets color:#000 on <th> cells", () => {
+  it("sets color:black on all cells", () => {
     const html = buildWordHtml(SAMPLE_MD);
-    const thMatches = [...html.matchAll(/<th style="([^"]+)"/g)];
-    for (const m of thMatches) {
-      expect(m[1]).toContain("color:#000");
+    const cellMatches = [...html.matchAll(/<t[dh] style="([^"]+)"/g)];
+    for (const m of cellMatches) {
+      expect(m[1]).toContain("color:black");
     }
   });
 
-  it("sets color:#000 on <td> cells", () => {
+  it("does NOT use gray background on any cell", () => {
     const html = buildWordHtml(SAMPLE_MD);
-    const tdMatches = [...html.matchAll(/<td style="([^"]+)"/g)];
-    for (const m of tdMatches) {
-      expect(m[1]).toContain("color:#000");
-    }
-  });
-
-  it("does NOT set a gray background on any cell", () => {
-    const html = buildWordHtml(SAMPLE_MD);
-    // Previously used background:#f0f0f0 on <th> which caused gray shading in Word
     expect(html).not.toContain("#f0f0f0");
     expect(html).not.toContain("background:#");
   });
