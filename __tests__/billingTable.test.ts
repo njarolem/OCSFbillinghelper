@@ -64,8 +64,12 @@ describe("buildWordHtml — exact fbde7fb structure (last known working)", () =>
 
   it("uses border on the <table> element (exact working style)", () => {
     const html = buildWordHtml(SAMPLE_MD);
+    // border:1px solid #000 appears on every <th>/<td> via inline style.
+    // The <table> itself now uses the HTML4 border="1" attribute + border-collapse
+    // in CSS — this is intentional for Word Desktop on Windows compatibility.
     expect(html).toContain('border:1px solid #000');
-    expect(html).toMatch(/<table style="[^"]*border:1px solid #000/);
+    expect(html).toMatch(/<table\s[^>]*border="1"/);
+    expect(html).toContain('border-collapse:collapse');
   });
 
   it("header cells contain text directly", () => {
