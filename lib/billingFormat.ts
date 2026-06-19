@@ -173,7 +173,12 @@ export function renderCompareTable(result: BillingResult): string {
     return `| ${r.date} | ${r.cptDisplay} | ${col3} | ${ocsf} |`;
   });
 
-  return [header, ...dataRows].join("\n");
+  const col3Total = isMedicareCol
+    ? `**${formatDollars(rows.reduce((s, r) => s + (r.medicare120Raw ?? 0), 0))}**`
+    : `**${formatDollars(result.compare.totalTheirCharge)}**`;
+  const totals = `| **TOTALS** | | ${col3Total} | **${formatDollars(result.compare.totalOcsfCharge)}** |`;
+
+  return [header, ...dataRows, totals].join("\n");
 }
 
 export function renderAscTable(result: BillingResult): string {
