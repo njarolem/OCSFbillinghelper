@@ -636,7 +636,7 @@ export function parseBlurb(
     followUp = COUNTY_QUESTION;
   } else if (conflicts.length > 0) {
     followUp = renderConflictFollowUp(conflicts);
-  } else if (county === "Other" && !opts.skipLocalityCheck) {
+  } else if (county === "Other" && !opts.skipLocalityCheck && !opts.confirmedLocality) {
     followUp =
       "I resolved the location to rest of Florida (locality 99). Please confirm — is the surgery county Miami-Dade, Broward, or Palm Beach? If it's another Florida county, reply \"rest of Florida\" to continue.";
   }

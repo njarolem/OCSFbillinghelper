@@ -376,7 +376,7 @@ export default function ChatThread({
     }
     setConversationText(merged);
 
-    const isOtherConfirm = pendingFollowUp?.includes("Other Florida") ?? false;
+    const isOtherConfirm = pendingFollowUp?.includes("locality 99") ?? false;
     // Anything the user has answered counts as a confirmed locality on the
     // re-parse — that's how we exit the "always ask first" loop in parseBlurb.
     const parsed = parseBlurb(merged, {
